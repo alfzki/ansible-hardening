@@ -19,6 +19,7 @@ Proyek ini dilengkapi dengan modul audit otomatis menggunakan **OpenSCAP** dan *
   - [4. Audit Kepatuhan & Verifikasi](#4-audit-kepatuhan--verifikasi)
 - [Pengelolaan Laporan Audit](#pengelolaan-laporan-audit)
 - [Keamanan & Praktik Terbaik](#keamanan--praktik-terbaik)
+- [Lisensi](#lisensi)
 
 ---
 
@@ -325,3 +326,10 @@ Direktori `reports/*.html` secara default diabaikan oleh Git agar tidak memperbe
 
 - **Jangan commit kredensial**: Berkas `inventory/hosts.ini` berisi informasi kredensial target dan telah dimasukkan ke dalam `.gitignore`. Gunakan Ansible Vault jika ingin mengenkripsi variabel sensitif.
 - **Binary CIS-CAT**: File `CIS-CAT-Lite.zip` adalah software berlisensi dari Center for Internet Security dan tidak disertakan dalam commit Git.
+
+---
+
+## Lisensi
+
+Proyek ini didistribusikan di bawah lisensi terbuka [MIT License](LICENSE). Silakan gunakan, modifikasi, dan distribusikan kembali sesuai dengan ketentuan lisensi tersebut.
+
