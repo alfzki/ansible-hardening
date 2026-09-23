@@ -1,18 +1,66 @@
+# ==============================================================================
+# Hardened Nftables Configuration with L4 Anti-DDoS & State Tracking
+# ==============================================================================
+
 table inet filter {
+{% if hardening_enable_ddos_nftables | default(true) %}
+    # Set Whitelist IP (Aman dari pembatasan rate limit & flood filter)
+    set ddos_whitelist {
+        type ipv4_addr
+        flags interval
+        elements = { {{ ddos_whitelist_ips | default(['127.0.0.1']) | select('match', '^[0-9.]+$') | join(', ') | default('127.0.0.1') }} }
+    }
+{% endif %}
+
     chain input {
         type filter hook input priority filter; policy drop;
+
+        # 1. Antarmuka Loopback
         iif "lo" accept
         ip saddr 127.0.0.0/8 drop
         ip6 saddr ::1 drop
+
+{% if hardening_enable_ddos_nftables | default(true) %}
+        # 2. Drop Paket Malformed & Stealth Port Scans (Xmas, NULL, SYN+FIN, SYN+RST)
+        tcp flags & (fin|syn) == fin|syn drop
+        tcp flags & (syn|rst) == syn|rst drop
+        tcp flags & (fin|syn|rst|psh|ack|urg) == 0 drop
+        tcp flags & (fin|syn|rst|psh|ack|urg) == fin|syn|rst|psh|ack|urg drop
+
+        # 3. Pengecualian Whitelist
+        ip saddr @ddos_whitelist accept
+{% endif %}
+
+        # 4. Connection State Tracking (Trafik terverifikasi)
         ct state established,related accept
         ct state invalid drop
+
+{% if hardening_enable_ddos_nftables | default(true) %}
+        # 5. ICMP / Ping Flood Rate Limiting
+        ip protocol icmp limit rate {{ nftables_icmp_rate_limit | default('5/second') }} burst {{ nftables_icmp_burst | default('10 packets') }} accept
+        ip protocol icmp drop
+        ip6 nexthdr ipv6-icmp limit rate {{ nftables_icmp_rate_limit | default('5/second') }} burst {{ nftables_icmp_burst | default('10 packets') }} accept
+        ip6 nexthdr ipv6-icmp drop
+
+        # 6. Concurrent Connection Limit per IP (Mencegah kehabisan socket descriptor)
+        tcp dport { 22, 80, 443 } meter conn_limit { ip saddr ct count over {{ nftables_conn_limit_per_ip | default(50) }} } drop
+
+        # 7. TCP SYN Flood Mitigation via Dynamic Meter
+        tcp flags syn tcp dport { 22, 80, 443 } meter syn_flood { ip saddr limit rate {{ nftables_syn_rate_limit | default('40/second') }} burst {{ nftables_syn_burst | default('80 packets') }} } accept
+        tcp flags syn tcp dport { 22, 80, 443 } drop
+{% endif %}
+
+        # 8. Izinkan akses port sah yang dikelola
         tcp dport { 22, 80, 443 } accept
     }
+
     chain forward {
         type filter hook forward priority filter; policy drop;
     }
+
     chain output {
         type filter hook output priority filter; policy drop;
+
         oif "lo" accept
         ct state established,related accept
         ip protocol icmp accept

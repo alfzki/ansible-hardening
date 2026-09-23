@@ -1,0 +1,32 @@
+---
+# ==============================================================================
+# Default Variables untuk Role ubuntu_hardening
+# Termasuk parameter mitigasi DoS / DDoS dan batas sumber daya sistem
+# ==============================================================================
+
+# Toggle fitur proteksi DoS / DDoS
+hardening_enable_ddos_sysctl: true
+hardening_enable_ddos_nftables: true
+hardening_enable_fail2ban: true
+hardening_enable_resource_limits: true
+
+# Daftar IP / Subnet Whitelist (diabaikan dari rate limit dan dynamic ban)
+ddos_whitelist_ips:
+  - "127.0.0.1"
+  - "::1"
+
+# Parameter Rate Limiting Nftables
+nftables_icmp_rate_limit: "5/second"
+nftables_icmp_burst: "10 packets"
+nftables_syn_rate_limit: "40/second"
+nftables_syn_burst: "80 packets"
+nftables_conn_limit_per_ip: 50
+
+# Parameter Fail2ban
+fail2ban_bantime: "1h"
+fail2ban_findtime: "10m"
+fail2ban_maxretry: 5
+fail2ban_banaction: "nftables-multiport"
+
+# Parameter Batas File Descriptors (nofile)
+hardening_nofile_limit: 65535

@@ -1,0 +1,41 @@
+---
+- name: Pastikan paket Fail2ban terpasang pada sistem
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+
+- name: Pastikan direktori log Nginx tersedia untuk Fail2ban jail
+  ansible.builtin.file:
+    path: /var/log/nginx
+    state: directory
+    owner: root
+    group: adm
+    mode: '0750'
+
+- name: Pastikan berkas log Nginx tersedia untuk pemantauan Fail2ban
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: touch
+    owner: root
+    group: adm
+    mode: '0640'
+    modification_time: preserve
+    access_time: preserve
+  loop:
+    - /var/log/nginx/error.log
+    - /var/log/nginx/access.log
+
+- name: Pasang konfigurasi Fail2ban jail lokal (/etc/fail2ban/jail.local)
+  ansible.builtin.template:
+    src: fail2ban_jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart fail2ban
+
+- name: Pastikan layanan Fail2ban aktif dan berjalan saat booting
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true

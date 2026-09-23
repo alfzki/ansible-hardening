@@ -1,0 +1,45 @@
+# ==============================================================================
+# Fail2ban Local Configuration (Dikelola otomatis oleh Ansible Hardening)
+# Backend: Nftables Multiport
+# ==============================================================================
+
+[DEFAULT]
+# Pengecualian alamat IP dari pemblokiran
+ignoreip = 127.0.0.1/8 ::1 {{ ddos_whitelist_ips | default([]) | join(' ') }}
+
+# Durasi pemblokiran default
+bantime = {{ fail2ban_bantime | default('1h') }}
+
+# Rentang waktu pemantauan insiden
+findtime = {{ fail2ban_findtime | default('10m') }}
+
+# Jumlah toleransi kegagalan sebelum IP diblokir
+maxretry = {{ fail2ban_maxretry | default(5) }}
+
+# Aksi pemblokiran terintegrasi dengan Nftables
+banaction = {{ fail2ban_banaction | default('nftables-multiport') }}
+banaction_allports = nftables-allports
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+maxretry = {{ fail2ban_maxretry | default(5) }}
+
+[nginx-limit-req]
+enabled = true
+port = http,https
+filter = nginx-limit-req
+logpath = /var/log/nginx/error.log
+maxretry = 3
+findtime = 5m
+bantime = 30m
+
+[nginx-botsearch]
+enabled = true
+port = http,https
+filter = nginx-botsearch
+logpath = /var/log/nginx/access.log
+maxretry = 2
+findtime = 10m
+bantime = 1d

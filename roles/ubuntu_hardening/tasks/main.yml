@@ -8,6 +8,10 @@
 - name: Hardening Kernel Parameters & Sysctl
   ansible.builtin.import_tasks: sysctl.yml
 
+- name: Hardening Batas Sumber Daya Sistem & File Descriptors (Limits)
+  ansible.builtin.import_tasks: limits.yml
+  when: hardening_enable_resource_limits | default(true) | bool
+
 - name: Pengamanan Layanan & Pembersihan Paket Legacy
   ansible.builtin.import_tasks: services.yml
 
@@ -22,6 +26,10 @@
 
 - name: Hardening Host Firewall (Nftables) & Auditd Rules
   ansible.builtin.import_tasks: firewall_audit.yml
+
+- name: Pengamanan Dynamic IP Banning & Mitigasi Intrusi (Fail2ban)
+  ansible.builtin.import_tasks: fail2ban.yml
+  when: hardening_enable_fail2ban | default(true) | bool
 
 - name: Hardening Systemd Journald & Izin Berkas Log
   ansible.builtin.import_tasks: logging.yml

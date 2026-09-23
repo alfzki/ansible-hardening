@@ -26,10 +26,16 @@ http {
     client_max_body_size 10m;
     client_header_buffer_size 1k;
     large_client_header_buffers 4 4k;
-    client_body_timeout 12;
-    client_header_timeout 12;
+    client_body_timeout 10;
+    client_header_timeout 10;
     keepalive_timeout 15;
     send_timeout 10;
+
+    # Bebaskan socket dan buffer memori segera setelah koneksi timeout (Mitigasi Slowloris)
+    reset_timedout_connection on;
+
+    # Batasi konkurensi stream HTTP/2 (Mitigasi HTTP/2 Rapid Reset CVE-2023-44487)
+    http2_max_concurrent_streams 128;
 
     # Rate Limiting & Connection Limiting Zones (Mitigasi DoS & Brute Force)
     limit_req_zone $binary_remote_addr zone=req_limit_per_ip:10m rate=10r/s;

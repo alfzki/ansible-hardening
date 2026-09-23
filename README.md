@@ -64,24 +64,29 @@ Proyek ini dilengkapi dengan modul audit otomatis menggunakan **OpenSCAP** dan *
 │   │   │   └── nftables.rules.j2        # Ruleset nftables port 22, 80, 443
 │   │   └── handlers/main.yml            # Handler reload/restart nginx & nftables
 │   └── ubuntu_hardening/                # Role utama hardening OS Ubuntu 24.04
+│       ├── defaults/
+│       │   └── main.yml                 # Default variables & threshold anti-DDoS / Fail2ban
 │       ├── tasks/
 │       │   ├── main.yml                 # Orkestrasi task hardening
 │       │   ├── filesystem.yml           # Hardening mount options & partisi
 │       │   ├── kernel_modules.yml       # Blacklist modul kernel & protokol tidak aman
-│       │   ├── sysctl.yml               # Kernel parameters & perlindungan jaringan
+│       │   ├── sysctl.yml               # Kernel parameters, TCP stack tuning & proteksi DoS
+│       │   ├── limits.yml               # File descriptors & socket buffers tuning (nofile)
 │       │   ├── services.yml             # Pengelolaan daemon, paket legacy & time sync
 │       │   ├── cron.yml                 # Izin & restriksi penjadwal Cron & At
 │       │   ├── ssh.yml                  # Hardening konfigurasi OpenSSH Server
 │       │   ├── auth.yml                 # PAM, pwquality, faillock, & password aging
-│       │   ├── firewall_audit.yml       # Aturan Nftables & auditd comprehensive
+│       │   ├── firewall_audit.yml       # Aturan Nftables (rate limiting) & auditd comprehensive
+│       │   ├── fail2ban.yml             # Dynamic IP banning & proteksi intrusi via Nftables
 │       │   ├── logging.yml              # Systemd-journald & izin berkas /var/log
 │       │   ├── system_access.yml        # Sudoers logging, banners, umask & PATH
 │       │   └── integrity.yml            # AIDE integrity, bootloader GRUB & AppArmor
 │       ├── handlers/
-│       │   └── main.yml                 # Handler restart service (sshd, auditd, nftables)
+│       │   └── main.yml                 # Handler restart service (sshd, auditd, nftables, fail2ban)
 │       ├── templates/
 │       │   ├── 99-cis.rules.j2          # Template audit rules CIS
-│       │   └── nftables.rules.j2        # Template firewall nftables default-deny
+│       │   ├── fail2ban_jail.local.j2   # Konfigurasi jail Fail2ban backend Nftables
+│       │   └── nftables.rules.j2        # Template firewall nftables anti-DDoS default-deny
 │       └── vars/                        # Variabel spesifik role
 ├── files/                               # Direktori binary pendukung (misal CIS-CAT Lite zip)
 ├── reports/                             # Direktori output laporan audit HTML
@@ -103,48 +108,63 @@ Role `ubuntu_hardening` mengimplementasikan parameter keamanan modular berikut:
    - Menonaktifkan modul filesystem yang tidak terpakai (cramfs, freevxfs, jffs2, hfs, hfsplus, squashfs, udf, overlay).
    - Menonaktifkan protokol jaringan rentan (dccp, rds, sctp, tipc) serta modul hardware (usb-storage, firewire-core, atm, can).
 
-3. **Kernel Parameters & Sysctl** (`tasks/sysctl.yml`):
+3. **Kernel Parameters, TCP Tuning & Anti-DDoS** (`tasks/sysctl.yml`):
    - Perlindungan spoofing IP, pengabaian broadcast ICMP, dan penolakan ICMP redirect.
-   - Mitigasi serangan SYN flood (`tcp_syncookies = 1`).
+   - Mitigasi serangan SYN flood (`tcp_syncookies = 1`, `tcp_max_syn_backlog = 65535`).
+   - Optimalisasi antrean soket & timeout (`somaxconn = 65535`, `tcp_fin_timeout = 15`, `tcp_tw_reuse = 1`).
+   - Penguatan tabel conntrack dari saturasi serangan (`nf_conntrack_max = 262144`).
    - Pengaktifan Randomize VA Space (ASLR), dmesg restrict, dan pembatasan ptrace/suid dump.
 
-4. **Pengelolaan Layanan & Paket Legacy** (`tasks/services.yml`):
+4. **Batas Sumber Daya Sistem & File Descriptors** (`tasks/limits.yml`):
+   - Peningkatan batas file descriptor (`nofile = 65535`) di `/etc/security/limits.d/99-nofile.conf`.
+   - Override batas `DefaultLimitNOFILE=65535` pada daemon systemd untuk mencegah error *"Too many open files"* saat lonjakan trafik.
+
+5. **Pengelolaan Layanan & Paket Legacy** (`tasks/services.yml`):
    - Pembersihan paket jaringan insecure (`ftp`, `tnftp`, `telnet`, `inetutils-telnet`, `rsync`).
    - Penonaktifan dan masking daemon tidak terpakai (`rsync`, `apport`, `avahi-daemon`, `cups`).
    - Sinkronisasi waktu otomatis via drop-in NTP `systemd-timesyncd`.
    - Pembatasan Postfix hanya mendengarkan loopback interface.
 
-5. **Penjadwalan Tugas Cron & At** (`tasks/cron.yml`):
+6. **Penjadwalan Tugas Cron & At** (`tasks/cron.yml`):
    - Kontrol akses ketat berkas `cron.allow` dan `at.allow`, serta penghapusan `.deny`.
    - Pembatasan izin direktori `/etc/cron.*` (0700) dan `/etc/crontab` (0600).
 
-6. **OpenSSH Server Hardening** (`tasks/ssh.yml`):
+7. **OpenSSH Server Hardening** (`tasks/ssh.yml`):
    - Penonaktifan login `root` via SSH (`PermitRootLogin no`) dan password kosong.
    - Penegakan otentikasi kunci publik (`PubkeyAuthentication yes`, `PasswordAuthentication no`).
    - Pembatasan ciphers, MACs, dan KexAlgorithms ke algoritma kriptografi modern.
    - Konfigurasi banner SSH resmi di `/etc/issue.net`.
 
-7. **Autentikasi & Kebijakan Password** (`tasks/auth.yml`):
+8. **Autentikasi & Kebijakan Password** (`tasks/auth.yml`):
    - Kompleksitas kata sandi via `pam_pwquality` (panjang minimal 14, variasi 4 kelas).
    - Penguncian akun setelah percobaan gagal via `pam_faillock`.
    - Pencegahan penggunaan ulang kata sandi lama via `pam_pwhistory`.
    - Timeout sesi shell otomatis (`TMOUT=900`) dan pembatasan perintah `su`.
 
-8. **Firewall & Aturan Auditd** (`tasks/firewall_audit.yml`):
+9. **Firewall Nftables L4 Rate Limiting & Auditd** (`tasks/firewall_audit.yml`):
    - Pengamanan jaringan berbasis **Nftables** dengan aturan default-deny.
-   - Pengaturan komprehensif **auditd** untuk mencatat modifikasi berkas sensitif, eksekusi privilese, dan perubahan konfigurasi sistem.
+   - Drop otomatis terhadap malformed TCP packets dan stealth scans (Xmas, NULL, SYN+FIN).
+   - Rate limiting ICMP/Ping flood (`5/s`, burst `10`).
+   - Mitigasi SYN Flood berbasis `meter` dinamis (`40/s`, burst `80`) dan concurrent connection cap (`50` per IP).
+   - Pengaturan komprehensif **auditd** untuk mencatat modifikasi berkas sensitif dan eksekusi privilese.
 
-9. **System Logging & Journald** (`tasks/logging.yml`):
-   - Konfigurasi `systemd-journald` (`ForwardToSyslog=yes`, `Storage=persistent`).
-   - Pengamanan izin berkas log pada direktori `/var/log`.
+10. **Dynamic IP Banning & Intrusion Mitigation** (`tasks/fail2ban.yml`):
+    - Integrasi **Fail2ban** dengan backend **Nftables Multiport**.
+    - Proteksi otomatis terhadap brute-force SSH (`sshd`).
+    - Deteksi & blokir otomatis bagi penyerang yang memicu limit request Nginx HTTP 429 (`nginx-limit-req`).
+    - Deteksi otomatis probe scanner dan exploit bot (`nginx-botsearch`).
 
-10. **Akses Sistem, Banner & Lingkungan Sesi** (`tasks/system_access.yml`):
+11. **System Logging & Journald** (`tasks/logging.yml`):
+    - Konfigurasi `systemd-journald` (`ForwardToSyslog=yes`, `Storage=persistent`).
+    - Pengamanan izin berkas log pada direktori `/var/log`.
+
+12. **Akses Sistem, Banner & Lingkungan Sesi** (`tasks/system_access.yml`):
     - Audit logfile dan session timeout sudo di `/etc/sudoers.d/01-cis-sudo`.
     - Peringatan banner konsol lokal `/etc/issue` & `/etc/motd`, serta pembersihan skrip motd dinamis.
     - Standardisasi default `umask 027` dan sanitasi variabel lingkungan `PATH`.
     - Pembatasan izin berkas inisialisasi interaktif pengguna (dotfiles).
 
-11. **Integritas Sistem, Bootloader & AppArmor** (`tasks/integrity.yml`):
+13. **Integritas Sistem, Bootloader & AppArmor** (`tasks/integrity.yml`):
     - Inisialisasi basis data integritas berkas **AIDE** dan monitoring audit tools.
     - Pengamanan argumen kernel bootloader **GRUB** (`audit=1`, `apparmor=1`).
     - Penegakan profil **AppArmor** ke mode enforce (`aa-enforce`).

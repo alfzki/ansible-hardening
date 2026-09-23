@@ -1,0 +1,42 @@
+---
+- name: Pastikan direktori /etc/security/limits.d tersedia
+  ansible.builtin.file:
+    path: /etc/security/limits.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Konfigurasi batas file descriptors (nofile) pada /etc/security/limits.d/99-nofile.conf
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/99-nofile.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Dikelola oleh Ansible Hardening - Batas file descriptor untuk mencegah socket exhaustion DoS
+      *               soft    nofile          {{ hardening_nofile_limit | default(65535) }}
+      *               hard    nofile          {{ hardening_nofile_limit | default(65535) }}
+      root            soft    nofile          {{ hardening_nofile_limit | default(65535) }}
+      root            hard    nofile          {{ hardening_nofile_limit | default(65535) }}
+      www-data        soft    nofile          {{ hardening_nofile_limit | default(65535) }}
+      www-data        hard    nofile          {{ hardening_nofile_limit | default(65535) }}
+
+- name: Pastikan direktori override konfigurasi systemd tersedia (/etc/systemd/system.conf.d)
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Terapkan batas default LimitNOFILE pada daemon systemd
+  ansible.builtin.copy:
+    dest: /etc/systemd/system.conf.d/limits.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Manager]
+      DefaultLimitNOFILE={{ hardening_nofile_limit | default(65535) }}
+  notify: Reload systemd daemon
