@@ -1,0 +1,16 @@
+---
+- name: Konfigurasi systemd-journald untuk ForwardToSyslog dan persistent Storage
+  community.general.ini_file:
+    path: /etc/systemd/journald.conf
+    section: Journal
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    mode: '0644'
+  loop:
+    - { option: 'ForwardToSyslog', value: 'yes' }
+    - { option: 'Storage', value: 'persistent' }
+
+- name: Perbaiki dan amankan hak akses berkas log pada direktori /var/log
+  ansible.builtin.shell:
+    cmd: find -P /var/log/ -perm /u+xs,g+xws,o+xwrt ! -name 'history.log*' ! -name 'eipp.log.xz*' ! -name '[bw]tmp' ! -name '[bw]tmp.*' ! -name '[bw]tmp-*' ! -name 'lastlog' ! -name 'lastlog.*' ! -name 'cloud-init.log*' ! -name 'localmessages*' ! -name 'waagent.log*' -type f -exec chmod u-xs,g-xws,o-xwrt {} \;
+  changed_when: false

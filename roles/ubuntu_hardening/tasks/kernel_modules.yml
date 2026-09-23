@@ -1,0 +1,40 @@
+---
+- name: Blacklist modul filesystem, protokol jaringan, dan hardware tidak aman di /etc/modprobe.d/cis.conf
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/cis.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      install cramfs /bin/false
+      blacklist cramfs
+      install freevxfs /bin/false
+      blacklist freevxfs
+      install jffs2 /bin/false
+      blacklist jffs2
+      install hfs /bin/false
+      blacklist hfs
+      install hfsplus /bin/false
+      blacklist hfsplus
+      install squashfs /bin/false
+      blacklist squashfs
+      install udf /bin/false
+      blacklist udf
+      install overlay /bin/false
+      blacklist overlay
+      install dccp /bin/false
+      blacklist dccp
+      install rds /bin/false
+      blacklist rds
+      install sctp /bin/false
+      blacklist sctp
+      install tipc /bin/false
+      blacklist tipc
+      install usb-storage /bin/false
+      blacklist usb-storage
+      install firewire-core /bin/false
+      blacklist firewire-core
+      install atm /bin/false
+      blacklist atm
+      install can /bin/false
+      blacklist can

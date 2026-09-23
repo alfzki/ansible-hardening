@@ -1,0 +1,72 @@
+---
+- name: Konfigurasi audit logging dan re-autentikasi sudo di /etc/sudoers.d/01-cis-sudo
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/01-cis-sudo
+    owner: root
+    group: root
+    mode: '0440'
+    content: |
+      Defaults logfile="/var/log/sudo.log"
+      Defaults timestamp_timeout=15
+
+- name: Konfigurasi banner peringatan login konsol lokal (/etc/issue & /etc/motd)
+  ansible.builtin.copy:
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      *****************************************************************
+      * PERINGATAN: Akses hanya untuk personel terotorisasi.          *
+      * Seluruh aktivitas dimonitor dan dicatat dalam audit keamanan. *
+      *****************************************************************
+  loop:
+    - /etc/issue
+    - /etc/motd
+
+- name: Nonaktifkan skrip update-motd dinamis agar tidak menampilkan informasi sistem
+  block:
+    - name: Temukan file skrip dalam direktori /etc/update-motd.d
+      ansible.builtin.find:
+        paths: /etc/update-motd.d
+        patterns: '*'
+        file_type: any
+      register: update_motd_files
+
+    - name: Hapus file skrip motd dinamis jika ada
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ update_motd_files.files }}"
+
+- name: Standarisasi nilai default umask sistem (027) pada profil shell
+  ansible.builtin.lineinfile:
+    path: "{{ item }}"
+    line: "umask 027"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - /etc/profile
+    - /etc/bash.bashrc
+    - /etc/profile.d/set-umask.sh
+
+- name: Restriksi dan standarisasi variabel PATH sistem di /etc/environment
+  ansible.builtin.lineinfile:
+    path: /etc/environment
+    regexp: "^PATH="
+    line: 'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"'
+
+- name: Pastikan direktori /snap/bin tersedia jika terdaftar dalam shell PATH
+  ansible.builtin.file:
+    path: /snap/bin
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Batasi izin berkas inisialisasi lingkungan pengguna interaktif (dotfiles)
+  ansible.builtin.shell:
+    cmd: find /home/sysadmin -maxdepth 1 -name ".*" -type f -exec chmod u-s,g-wxs,o= {} +
+  changed_when: false

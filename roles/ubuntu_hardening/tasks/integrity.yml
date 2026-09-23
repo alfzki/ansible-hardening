@@ -1,0 +1,74 @@
+---
+- name: Pengelolaan Integritas Berkas AIDE (Advanced Intrusion Detection Environment)
+  block:
+    - name: Pastikan dependensi AIDE terinstal
+      ansible.builtin.apt:
+        name:
+          - aide
+          - aide-common
+        state: present
+
+    - name: Konfigurasi path database AIDE di /etc/aide/aide.conf
+      ansible.builtin.lineinfile:
+        path: /etc/aide/aide.conf
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "database=file:/var/lib/aide/aide.db"
+        - "database_out=file:/var/lib/aide/aide.db.new"
+
+    - name: Daftarkan binary audit tools ke dalam pengawasan /etc/aide/aide.conf
+      ansible.builtin.lineinfile:
+        path: /etc/aide/aide.conf
+        regexp: "^.*(/usr)?/sbin/{{ item }}.*$"
+        line: "/usr/sbin/{{ item }} p+i+n+u+g+s+b+acl+xattrs+sha512"
+        state: present
+      loop:
+        - auditctl
+        - auditd
+        - ausearch
+        - aureport
+        - autrace
+        - augenrules
+
+    - name: Periksa keberadaan berkas database aktif AIDE
+      ansible.builtin.stat:
+        path: /var/lib/aide/aide.db
+      register: aide_db_stat
+
+    - name: Inisialisasi basis data AIDE jika belum tersedia
+      ansible.builtin.command:
+        cmd: aideinit -y -f
+      when: not aide_db_stat.stat.exists
+
+- name: Konfigurasi Parameter Keamanan Bootloader GRUB
+  block:
+    - name: Konfigurasi argumen kernel audit dan apparmor pada /etc/default/grub
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: "^{{ item.key }}="
+        line: '{{ item.key }}="audit=1 audit_backlog_limit=8192 apparmor=1 security=apparmor"'
+      loop:
+        - { key: 'GRUB_CMDLINE_LINUX' }
+        - { key: 'GRUB_CMDLINE_LINUX_DEFAULT' }
+      register: grub_config_update
+
+    - name: Perbarui berkas konfigurasi bootloader GRUB
+      ansible.builtin.command:
+        cmd: update-grub
+      when: grub_config_update.changed
+
+- name: Penguatan Mandatory Access Control AppArmor
+  block:
+    - name: Pastikan dependensi paket AppArmor terinstal
+      ansible.builtin.apt:
+        name:
+          - apparmor
+          - apparmor-utils
+        state: present
+
+    - name: Terapkan penegakan profil AppArmor ke mode enforce
+      ansible.builtin.shell:
+        cmd: aa-enforce /etc/apparmor.d/*
+      failed_when: false
+      changed_when: false

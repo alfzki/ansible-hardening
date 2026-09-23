@@ -1,0 +1,46 @@
+---
+- name: Buat file izin akses /etc/cron.allow (group crontab)
+  ansible.builtin.copy:
+    dest: /etc/cron.allow
+    owner: root
+    group: crontab
+    mode: '0640'
+    content: ""
+
+- name: Pastikan file izin akses /etc/at.allow ada dengan izin aman
+  ansible.builtin.copy:
+    dest: /etc/at.allow
+    owner: root
+    group: root
+    mode: '0640'
+    content: ""
+
+- name: Hapus file daftar tolak akses cron.deny dan at.deny
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/cron.deny
+    - /etc/at.deny
+
+- name: Atur hak akses berkas konfigurasi /etc/crontab ke 0600
+  ansible.builtin.file:
+    path: /etc/crontab
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Atur hak akses direktori penjadwal berkala cron.* ke 0700
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: '0700'
+    state: directory
+  loop:
+    - /etc/cron.d
+    - /etc/cron.daily
+    - /etc/cron.hourly
+    - /etc/cron.monthly
+    - /etc/cron.weekly
+    - /etc/cron.yearly

@@ -1,0 +1,86 @@
+---
+- name: Hentikan, nonaktifkan, dan mask layanan daemon rsync
+  ansible.builtin.systemd:
+    name: rsync
+    state: stopped
+    enabled: false
+    masked: true
+  failed_when: false
+
+- name: Hapus paket jaringan legacy dan tidak aman (ftp, telnet, rsync)
+  ansible.builtin.apt:
+    name:
+      - ftp
+      - tnftp
+      - telnet
+      - inetutils-telnet
+      - rsync
+    state: absent
+    purge: true
+
+- name: Nonaktifkan pelaporan error otomatis pada /etc/default/apport
+  ansible.builtin.lineinfile:
+    path: /etc/default/apport
+    regexp: '^enabled='
+    line: 'enabled=0'
+    create: true
+    mode: '0644'
+
+- name: Nonaktifkan dan mask layanan apport
+  ansible.builtin.systemd:
+    name: apport
+    state: stopped
+    enabled: false
+    masked: true
+  failed_when: false
+
+- name: Pastikan direktori drop-in timesyncd (/etc/systemd/timesyncd.conf.d) ada
+  ansible.builtin.file:
+    path: /etc/systemd/timesyncd.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Terapkan konfigurasi NTP drop-in untuk systemd-timesyncd
+  ansible.builtin.copy:
+    dest: /etc/systemd/timesyncd.conf.d/oscap-remedy.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Time]
+      NTP=0.ubuntu.pool.ntp.org 1.ubuntu.pool.ntp.org
+      FallbackNTP=2.ubuntu.pool.ntp.org 3.ubuntu.pool.ntp.org
+
+- name: Aktifkan dan jalankan layanan sinkronisasi waktu systemd-timesyncd
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    state: started
+    enabled: true
+
+- name: Batasi Postfix hanya mendengarkan antarmuka loopback jika terinstal
+  block:
+    - name: Atur inet_interfaces ke loopback-only di /etc/postfix/main.cf
+      ansible.builtin.lineinfile:
+        path: /etc/postfix/main.cf
+        regexp: '^inet_interfaces\s*='
+        line: 'inet_interfaces = loopback-only'
+      register: postfix_config
+
+    - name: Muat ulang konfigurasi postfix jika terdapat perubahan
+      ansible.builtin.service:
+        name: postfix
+        state: restarted
+      when: postfix_config.changed
+  ignore_errors: true
+
+- name: Nonaktifkan layanan broadcast mDNS dan printing tidak terpakai (avahi-daemon, cups)
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - avahi-daemon
+    - cups
+  failed_when: false

@@ -47,12 +47,16 @@ Proyek ini dilengkapi dengan modul audit otomatis menggunakan **OpenSCAP** dan *
 │       ├── tasks/
 │       │   ├── main.yml                 # Orkestrasi task hardening
 │       │   ├── filesystem.yml           # Hardening mount options & partisi
+│       │   ├── kernel_modules.yml       # Blacklist modul kernel & protokol tidak aman
 │       │   ├── sysctl.yml               # Kernel parameters & perlindungan jaringan
+│       │   ├── services.yml             # Pengelolaan daemon, paket legacy & time sync
+│       │   ├── cron.yml                 # Izin & restriksi penjadwal Cron & At
 │       │   ├── ssh.yml                  # Hardening konfigurasi OpenSSH Server
 │       │   ├── auth.yml                 # PAM, pwquality, faillock, & password aging
 │       │   ├── firewall_audit.yml       # Aturan Nftables & auditd comprehensive
-│       │   ├── cis_remediation.yml      # Remediasi CIS: sanitasi, cron, services
-│       │   └── cis_remediation_v2.yml   # Remediasi CIS: AIDE, GRUB, journald, AppArmor
+│       │   ├── logging.yml              # Systemd-journald & izin berkas /var/log
+│       │   ├── system_access.yml        # Sudoers logging, banners, umask & PATH
+│       │   └── integrity.yml            # AIDE integrity, bootloader GRUB & AppArmor
 │       ├── handlers/
 │       │   └── main.yml                 # Handler restart service (sshd, auditd, nftables)
 │       ├── templates/
@@ -69,40 +73,61 @@ Proyek ini dilengkapi dengan modul audit otomatis menggunakan **OpenSCAP** dan *
 
 ## Cakupan Hardening
 
-Role `ubuntu_hardening` mengimplementasikan parameter keamanan berikut:
+Role `ubuntu_hardening` mengimplementasikan parameter keamanan modular berikut:
 
 1. **Filesystem & Mount Options** (`tasks/filesystem.yml`):
-   - Menonaktifkan modul filesystem yang tidak terpakai (cramfs, freevxfs, jffs2, hfs, hfsplus, squashfs, udf).
-   - Penguatan opsi partisi `/tmp`, `/var/tmp`, `/dev/shm` (`nodev`, `nosuid`, `noexec`).
+   - Penguatan opsi partisi `/dev/shm` (`defaults,nodev,nosuid,noexec`).
+   - Penegakan izin sticky bit pada seluruh direktori *world-writable*.
 
-2. **Kernel Parameters & Sysctl** (`tasks/sysctl.yml`):
+2. **Blacklist Modul Kernel & Protokol Jaringan** (`tasks/kernel_modules.yml`):
+   - Menonaktifkan modul filesystem yang tidak terpakai (cramfs, freevxfs, jffs2, hfs, hfsplus, squashfs, udf, overlay).
+   - Menonaktifkan protokol jaringan rentan (dccp, rds, sctp, tipc) serta modul hardware (usb-storage, firewire-core, atm, can).
+
+3. **Kernel Parameters & Sysctl** (`tasks/sysctl.yml`):
    - Perlindungan spoofing IP, pengabaian broadcast ICMP, dan penolakan ICMP redirect.
    - Mitigasi serangan SYN flood (`tcp_syncookies = 1`).
-   - Pengaktifan Randomize VA Space (ASLR) dan pembatasan ptrace scope.
+   - Pengaktifan Randomize VA Space (ASLR), dmesg restrict, dan pembatasan ptrace/suid dump.
 
-3. **OpenSSH Server Hardening** (`tasks/ssh.yml`):
-   - Penonaktifan login `root` langsung via SSH (`PermitRootLogin no`).
-   - Penonaktifan otentikasi password kosong (`PermitEmptyPasswords no`).
-   - Pembatasan ciphers dan MACs ke algoritma kriptografi modern.
-   - Konfigurasi `ClientAliveInterval` dan batas percobaan login (`MaxAuthTries`).
+4. **Pengelolaan Layanan & Paket Legacy** (`tasks/services.yml`):
+   - Pembersihan paket jaringan insecure (`ftp`, `tnftp`, `telnet`, `inetutils-telnet`, `rsync`).
+   - Penonaktifan dan masking daemon tidak terpakai (`rsync`, `apport`, `avahi-daemon`, `cups`).
+   - Sinkronisasi waktu otomatis via drop-in NTP `systemd-timesyncd`.
+   - Pembatasan Postfix hanya mendengarkan loopback interface.
 
-4. **Autentikasi & Kebijakan Password** (`tasks/auth.yml`):
-   - Kompleksitas kata sandi via `pam_pwquality` (panjang minimal, variasi karakter).
+5. **Penjadwalan Tugas Cron & At** (`tasks/cron.yml`):
+   - Kontrol akses ketat berkas `cron.allow` dan `at.allow`, serta penghapusan `.deny`.
+   - Pembatasan izin direktori `/etc/cron.*` (0700) dan `/etc/crontab` (0600).
+
+6. **OpenSSH Server Hardening** (`tasks/ssh.yml`):
+   - Penonaktifan login `root` via SSH (`PermitRootLogin no`) dan password kosong.
+   - Penegakan otentikasi kunci publik (`PubkeyAuthentication yes`, `PasswordAuthentication no`).
+   - Pembatasan ciphers, MACs, dan KexAlgorithms ke algoritma kriptografi modern.
+   - Konfigurasi banner SSH resmi di `/etc/issue.net`.
+
+7. **Autentikasi & Kebijakan Password** (`tasks/auth.yml`):
+   - Kompleksitas kata sandi via `pam_pwquality` (panjang minimal 14, variasi 4 kelas).
    - Penguncian akun setelah percobaan gagal via `pam_faillock`.
    - Pencegahan penggunaan ulang kata sandi lama via `pam_pwhistory`.
    - Timeout sesi shell otomatis (`TMOUT=900`) dan pembatasan perintah `su`.
 
-5. **Firewall & Logging/Audit** (`tasks/firewall_audit.yml`):
+8. **Firewall & Aturan Auditd** (`tasks/firewall_audit.yml`):
    - Pengamanan jaringan berbasis **Nftables** dengan aturan default-deny.
-   - Pengaturan komprehensif **auditd** untuk mencatat modifikasi file sensitif, eksekusi privilese, serta perubahan konfigurasi sistem.
+   - Pengaturan komprehensif **auditd** untuk mencatat modifikasi berkas sensitif, eksekusi privilese, dan perubahan konfigurasi sistem.
 
-6. **Remediasi Lanjutan CIS** (`tasks/cis_remediation.yml` & `tasks/cis_remediation_v2.yml`):
-   - Pengamanan hak akses direktori/file cron dan sistem.
-   - Penonaktifan layanan lama/insecure (rpcbind, nis, rsh, talk, telnet, tftp, dll).
-   - Inisialisasi dan verifikasi integritas berkas menggunakan **AIDE**.
-   - Pengamanan bootloader **GRUB** dengan kata sandi.
-   - Konfigurasi penyimpanan aman log **systemd-journald**.
-   - Penegakan profil keamanan **AppArmor** (`enforce mode`).
+9. **System Logging & Journald** (`tasks/logging.yml`):
+   - Konfigurasi `systemd-journald` (`ForwardToSyslog=yes`, `Storage=persistent`).
+   - Pengamanan izin berkas log pada direktori `/var/log`.
+
+10. **Akses Sistem, Banner & Lingkungan Sesi** (`tasks/system_access.yml`):
+    - Audit logfile dan session timeout sudo di `/etc/sudoers.d/01-cis-sudo`.
+    - Peringatan banner konsol lokal `/etc/issue` & `/etc/motd`, serta pembersihan skrip motd dinamis.
+    - Standardisasi default `umask 027` dan sanitasi variabel lingkungan `PATH`.
+    - Pembatasan izin berkas inisialisasi interaktif pengguna (dotfiles).
+
+11. **Integritas Sistem, Bootloader & AppArmor** (`tasks/integrity.yml`):
+    - Inisialisasi basis data integritas berkas **AIDE** dan monitoring audit tools.
+    - Pengamanan argumen kernel bootloader **GRUB** (`audit=1`, `apparmor=1`).
+    - Penegakan profil **AppArmor** ke mode enforce (`aa-enforce`).
 
 ---
 
