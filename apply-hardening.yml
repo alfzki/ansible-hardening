@@ -1,6 +1,12 @@
 ---
 - name: Penerapan Hardening Keamanan Ubuntu Server 24.04 (CIS Benchmark)
-  hosts: ubuntu_vms
+  hosts: hardening_servers
   become: true
+  pre_tasks:
+    - name: Validasi apakah host diizinkan untuk dilakukan hardening
+      ansible.builtin.assert:
+        that:
+          - hardening_allowed | default(true) | bool
+        fail_msg: "Host {{ inventory_hostname }} dibatasi dan TIDAK diizinkan untuk dilakukan hardening (hanya untuk pengujian audit)!"
   roles:
     - ubuntu_hardening

@@ -148,6 +148,11 @@ Role `ubuntu_hardening` mengimplementasikan parameter keamanan modular berikut:
 
 ### 1. Konfigurasi Inventaris
 
+Inventaris dibagi menjadi dua kelompok target utama:
+- `hardening_servers`: Host yang akan dieksekusi playbook hardening (`ubuntu-server-2404`).
+- `standard_servers`: Host standar tanpa hardening dengan flag `hardening_allowed=false`, difungsikan khusus sebagai pembanding baseline untuk pengujian audit OpenSCAP & CIS-CAT (`standard-server`).
+- `ubuntu_vms`: Grup induk (children) yang mencakup seluruh target audit kepatuhan.
+
 Salin template inventaris dan sesuaikan alamat IP serta kredensial target VM:
 
 ```bash
@@ -155,7 +160,7 @@ cp inventory/hosts.ini.example inventory/hosts.ini
 nano inventory/hosts.ini
 ```
 
-Pastikan konektivitas Ansible berjalan dengan baik:
+Pastikan konektivitas Ansible berjalan dengan baik ke seluruh host:
 
 ```bash
 ansible all -m ping

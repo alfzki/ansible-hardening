@@ -1,6 +1,18 @@
-[ubuntu_vms]
-# Ganti dengan nama host/IP dan kredensial target VM Anda
+[hardening_servers]
+# Host yang akan diterapkan konfigurasi hardening CIS Benchmark
 ubuntu-server-2404 ansible_host=192.168.1.100 ansible_user=sysadmin ansible_become_password=YourPasswordHere
+
+[standard_servers]
+# Host standar (tanpa hardening) khusus untuk benchmark & pengujian audit
+standard-server ansible_host=192.168.1.101 ansible_user=sysadmin ansible_become_password=YourPasswordHere
+
+[standard_servers:vars]
+hardening_allowed=false
+
+# Grup gabungan seluruh target evaluasi audit CIS (OpenSCAP & CIS-CAT)
+[ubuntu_vms:children]
+hardening_servers
+standard_servers
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3

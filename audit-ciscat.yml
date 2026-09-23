@@ -91,14 +91,14 @@
     - name: Unduh (fetch) laporan HTML CIS-CAT terbaru ke Host
       ansible.builtin.fetch:
         src: "{{ (ciscat_reports.files | sort(attribute='mtime', reverse=true) | first).path }}"
-        dest: "{{ playbook_dir }}/reports/ciscat-report-{{ ansible_facts['date_time']['epoch'] }}.html"
+        dest: "{{ playbook_dir }}/reports/ciscat-report-{{ inventory_hostname }}-{{ ansible_facts['date_time']['epoch'] }}.html"
         flat: true
       when: ciscat_reports.matched > 0
 
-    - name: Perbarui symlink laporan CIS-CAT terbaru
+    - name: Perbarui symlink laporan CIS-CAT terbaru per host
       ansible.builtin.file:
-        src: "ciscat-report-{{ ansible_facts['date_time']['epoch'] }}.html"
-        dest: "{{ playbook_dir }}/reports/ciscat-report-latest.html"
+        src: "ciscat-report-{{ inventory_hostname }}-{{ ansible_facts['date_time']['epoch'] }}.html"
+        dest: "{{ playbook_dir }}/reports/ciscat-report-{{ inventory_hostname }}-latest.html"
         state: link
       delegate_to: localhost
       become: false

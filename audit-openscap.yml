@@ -105,13 +105,13 @@
     - name: Tarik (fetch) laporan HTML OpenSCAP ke Host
       ansible.builtin.fetch:
         src: /var/log/scap-reports/oscap-report.html
-        dest: "{{ playbook_dir }}/reports/oscap-report-{{ ansible_facts['date_time']['epoch'] }}.html"
+        dest: "{{ playbook_dir }}/reports/oscap-report-{{ inventory_hostname }}-{{ ansible_facts['date_time']['epoch'] }}.html"
         flat: true
 
-    - name: Perbarui symlink laporan OpenSCAP terbaru
+    - name: Perbarui symlink laporan OpenSCAP terbaru per host
       ansible.builtin.file:
-        src: "oscap-report-{{ ansible_facts['date_time']['epoch'] }}.html"
-        dest: "{{ playbook_dir }}/reports/oscap-report-latest.html"
+        src: "oscap-report-{{ inventory_hostname }}-{{ ansible_facts['date_time']['epoch'] }}.html"
+        dest: "{{ playbook_dir }}/reports/oscap-report-{{ inventory_hostname }}-latest.html"
         state: link
       delegate_to: localhost
       become: false
