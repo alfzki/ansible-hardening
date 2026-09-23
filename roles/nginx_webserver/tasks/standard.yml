@@ -1,0 +1,96 @@
+---
+- name: Pastikan server_tokens diaktifkan pada /etc/nginx/nginx.conf (Standar Baseline)
+  ansible.builtin.lineinfile:
+    path: /etc/nginx/nginx.conf
+    regexp: '^\s*#?\s*server_tokens\s+'
+    line: "\tserver_tokens on;"
+    insertafter: 'http {'
+    state: present
+  notify: Reload nginx
+
+- name: Hapus konfigurasi security headers jika ada dari percobaan sebelumnya
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/nginx/conf.d/security_headers.conf
+    - /etc/nginx/snippets/security_headers.conf
+    - /etc/nginx/sites-enabled/hardened.conf
+    - /etc/nginx/sites-available/hardened.conf
+  notify: Reload nginx
+
+- name: Cek ketersediaan sertifikat SSL standar
+  ansible.builtin.stat:
+    path: "{{ webserver_ssl_cert_dir }}/nginx-standard.crt"
+  register: standard_ssl_cert
+
+- name: Periksa apakah sertifikat SSL standar memiliki ekstensi SAN (Subject Alternative Name)
+  ansible.builtin.shell:
+    cmd: "openssl x509 -in {{ webserver_ssl_cert_dir }}/nginx-standard.crt -text -noout | grep -q 'Subject Alternative Name'"
+  register: standard_cert_has_san
+  failed_when: false
+  changed_when: false
+  when: standard_ssl_cert.stat.exists
+
+- name: Buat sertifikat SSL self-signed standar untuk HTTPS baseline dengan SAN
+  ansible.builtin.command:
+    cmd: >
+      openssl req -x509 -nodes -days 365 -newkey rsa:2048
+      -keyout {{ webserver_ssl_key_dir }}/nginx-standard.key
+      -out {{ webserver_ssl_cert_dir }}/nginx-standard.crt
+      -subj "/C=ID/ST=DKI/L=Jakarta/O=StandardBaseline/CN={{ inventory_hostname }}"
+      -addext "subjectAltName=IP:{{ ansible_facts.get('default_ipv4', {}).get('address', ansible_host) }},DNS:{{ inventory_hostname }},DNS:localhost"
+  when: not standard_ssl_cert.stat.exists or (standard_cert_has_san.rc | default(1) != 0)
+  notify: Reload nginx
+
+- name: Pastikan izin berkas private key SSL standar aman (0600)
+  ansible.builtin.file:
+    path: "{{ webserver_ssl_key_dir }}/nginx-standard.key"
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Terapkan konfigurasi Virtual Host Nginx standar baseline
+  ansible.builtin.template:
+    src: standard_default.conf.j2
+    dest: /etc/nginx/sites-available/default
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload nginx
+
+- name: Pastikan symlink vhost default aktif
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/default
+    dest: /etc/nginx/sites-enabled/default
+    state: link
+  notify: Reload nginx
+
+- name: Pastikan direktori document root web server tersedia
+  ansible.builtin.file:
+    path: "{{ webserver_web_root }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+
+- name: Bersihkan custom error pages hardened jika ada pada standard server
+  ansible.builtin.file:
+    path: "{{ webserver_web_root }}/{{ item }}"
+    state: absent
+  loop:
+    - 404.html
+    - 50x.html
+
+- name: Pasang dummy web page baseline standar pada /var/www/html/index.html
+  ansible.builtin.template:
+    src: standard_index.html.j2
+    dest: "{{ webserver_web_root }}/index.html"
+    owner: www-data
+    group: www-data
+    mode: '0644'
+
+- name: Uji validitas sintaks konfigurasi Nginx standar
+  ansible.builtin.command:
+    cmd: nginx -t
+  changed_when: false

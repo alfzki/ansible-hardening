@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Standard Baseline Web Server - {{ ansible_facts['hostname'] }}</title>
+    <style>
+        :root {
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-main: #1f2937;
+            --text-muted: #4b5563;
+            --border-color: #e5e7eb;
+            --accent-color: #3b82f6;
+            --warn-bg: #fef3c7;
+            --warn-border: #f59e0b;
+            --warn-text: #92400e;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 2rem 1rem;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .banner {
+            background-color: var(--warn-bg);
+            border-left: 5px solid var(--warn-border);
+            color: var(--warn-text);
+            padding: 1rem 1.5rem;
+            border-radius: 4px;
+            margin-bottom: 2rem;
+            font-size: 0.95rem;
+        }
+        .banner strong { font-weight: 700; }
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        h1 {
+            font-size: 1.75rem;
+            margin-bottom: 0.5rem;
+            color: #111827;
+        }
+        .badge {
+            display: inline-block;
+            background-color: #e0f2fe;
+            color: #0369a1;
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+        }
+        .badge-warn {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 1.25rem;
+        }
+        .metric-box {
+            background-color: #f9fafb;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+        }
+        .metric-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+        }
+        .metric-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #111827;
+            margin-top: 0.25rem;
+            word-break: break-all;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        th, td {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        th {
+            background-color: #f9fafb;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .status-unhardened {
+            color: #dc2626;
+            font-weight: 600;
+        }
+        footer {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="banner">
+            <strong>BASELINE AUDIT ENVIRONMENT:</strong> Mesin ini berjalan sebagai server web standar (unhardened baseline) untuk keperluan perbandingan dan evaluasi kepatuhan audit CIS / OpenSCAP terhadap server ter-hardening.
+        </div>
+
+        <div class="card">
+            <span class="badge">Standard Baseline</span>
+            <span class="badge badge-warn">Unhardened Configuration</span>
+            <h1>Enterprise Portal - Standard Server</h1>
+            <p style="color: var(--text-muted);">Sistem web server aktif dengan konfigurasi bawaan standar (default settings) tanpa parameter hardening keamanan lanjutan.</p>
+
+            <div class="grid">
+                <div class="metric-box">
+                    <div class="metric-label">Hostname Target</div>
+                    <div class="metric-value">{{ ansible_facts['hostname'] }}</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">IP Address</div>
+                    <div class="metric-value">{{ ansible_facts.get('default_ipv4', {}).get('address', ansible_host) }}</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Operating System</div>
+                    <div class="metric-value">{{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Web Server Engine</div>
+                    <div class="metric-value">Nginx (Default Banner Enabled)</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Karakteristik Keamanan Web Server (Baseline)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Parameter Keamanan</th>
+                        <th>Status Konfigurasi</th>
+                        <th>Keterangan</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Server Tokens / Version Banner</strong></td>
+                        <td><span class="status-unhardened">Terekspos (server_tokens on)</span></td>
+                        <td>Versi server & OS dapat dibaca publik pada header respons HTTP</td>
+                    </tr>
+                    <tr>
+                        <td><strong>HTTP to HTTPS Redirection</strong></td>
+                        <td><span class="status-unhardened">Nonaktif (Plain HTTP)</span></td>
+                        <td>Port 80 menerima koneksi plain HTTP tanpa pengalihan otomatis</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Strict-Transport-Security (HSTS)</strong></td>
+                        <td><span class="status-unhardened">Tidak Ada</span></td>
+                        <td>Browser diizinkan mengakses via koneksi tidak terenkripsi</td>
+                    </tr>
+                    <tr>
+                        <td><strong>X-Frame-Options (Clickjacking)</strong></td>
+                        <td><span class="status-unhardened">Tidak Terpasang</span></td>
+                        <td>Halaman rentan terhadap serangan iframe embedding</td>
+                    </tr>
+                    <tr>
+                        <td><strong>X-Content-Type-Options</strong></td>
+                        <td><span class="status-unhardened">Tidak Terpasang</span></td>
+                        <td>MIME-type sniffing diizinkan oleh klien browser</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Content-Security-Policy (CSP)</strong></td>
+                        <td><span class="status-unhardened">Tidak Dibatasi</span></td>
+                        <td>Inline scripts dan sumber eksternal bebas dieksekusi</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Firewall Filtering</strong></td>
+                        <td><span class="status-unhardened">Standar / Permissive</span></td>
+                        <td>Port 80 dan 443 terbuka bebas untuk komunikasi jaringan</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <footer>
+            Ansible Security Hardening & Compliance Framework &bull; Baseline Node: {{ inventory_hostname }}
+        </footer>
+    </div>
+</body>
+</html>

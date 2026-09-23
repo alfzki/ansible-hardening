@@ -1,0 +1,62 @@
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log;
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+    worker_connections 1024;
+    multi_accept on;
+}
+
+http {
+    ##
+    # Basic Settings & DoS Mitigations
+    ##
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    types_hash_max_size 2048;
+
+    # Sembunyikan versi server dan OS pada response header & error page
+    server_tokens off;
+
+    # Buffer & Timeout Restrictions (Mitigasi Serangan Slowloris & Buffer Overflow)
+    client_body_buffer_size 128k;
+    client_max_body_size 10m;
+    client_header_buffer_size 1k;
+    large_client_header_buffers 4 4k;
+    client_body_timeout 12;
+    client_header_timeout 12;
+    keepalive_timeout 15;
+    send_timeout 10;
+
+    # Rate Limiting & Connection Limiting Zones (Mitigasi DoS & Brute Force)
+    limit_req_zone $binary_remote_addr zone=req_limit_per_ip:10m rate=10r/s;
+    limit_conn_zone $binary_remote_addr zone=conn_limit_per_ip:10m;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    ##
+    # SSL/TLS Settings
+    ##
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    ##
+    # Logging Settings
+    ##
+    access_log /var/log/nginx/access.log;
+
+    ##
+    # Gzip Settings - Dinonaktifkan untuk mitigasi BREACH attack (CVE-2013-3587) pada HTTPS
+    ##
+    gzip off;
+
+    ##
+    # Virtual Host Configs
+    ##
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}

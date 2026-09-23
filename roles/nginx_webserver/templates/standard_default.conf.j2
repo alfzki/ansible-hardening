@@ -1,0 +1,36 @@
+# ==============================================================================
+# Standard Baseline Nginx Virtual Host Configuration (Unhardened)
+# Digunakan untuk benchmark dan pengujian perbandingan kepatuhan keamanan
+# ==============================================================================
+
+server {
+    listen {{ webserver_http_port }} default_server;
+    listen [::]:{{ webserver_http_port }} default_server;
+
+    # HTTPS listener dengan sertifikat standar tanpa restriksi hardened
+    listen {{ webserver_https_port }} ssl default_server;
+    listen [::]:{{ webserver_https_port }} ssl default_server;
+
+    server_name _;
+    root {{ webserver_web_root }};
+    index index.html index.htm;
+
+    # Sertifikat SSL standar
+    ssl_certificate {{ webserver_ssl_cert_dir }}/nginx-standard.crt;
+    ssl_certificate_key {{ webserver_ssl_key_dir }}/nginx-standard.key;
+
+    # Mode Standar: server_tokens aktif (menampilkan versi Nginx dan OS)
+    server_tokens on;
+
+    # Mode Standar: Tidak ada security headers (HSTS, CSP, X-Frame-Options dsb sengaja dihilangkan)
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # Penanganan error standar
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}

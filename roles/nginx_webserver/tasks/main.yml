@@ -1,0 +1,24 @@
+---
+- name: Instalasi paket Nginx dan OpenSSL
+  ansible.builtin.apt:
+    name:
+      - nginx
+      - openssl
+      - curl
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Konfigurasi Web Server Nginx - Mode Hardened (Production CIS Security)
+  ansible.builtin.include_tasks: hardened.yml
+  when: webserver_hardened | bool
+
+- name: Konfigurasi Web Server Nginx - Mode Standard Baseline (Unhardened)
+  ansible.builtin.include_tasks: standard.yml
+  when: not (webserver_hardened | bool)
+
+- name: Pastikan layanan Nginx aktif dan berjalan otomatis saat boot
+  ansible.builtin.systemd:
+    name: nginx
+    state: started
+    enabled: true

@@ -1,0 +1,6 @@
+---
+- name: Setup Web Server Nginx pada Seluruh VM Ubuntu (Hardened & Standard Unhardened)
+  hosts: ubuntu_vms
+  become: true
+  roles:
+    - nginx_webserver

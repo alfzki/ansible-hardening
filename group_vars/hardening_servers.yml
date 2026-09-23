@@ -1,0 +1,3 @@
+---
+# Variabel spesifik untuk kelompok server hardening
+webserver_hardened: true

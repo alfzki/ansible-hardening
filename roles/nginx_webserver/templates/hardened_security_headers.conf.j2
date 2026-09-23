@@ -1,0 +1,27 @@
+# ==============================================================================
+# Security Headers - CIS Benchmark & OWASP Best Practices
+# ==============================================================================
+
+# Perlindungan dari serangan Clickjacking
+add_header X-Frame-Options "SAMEORIGIN" always;
+
+# Cegah MIME-type sniffing
+add_header X-Content-Type-Options "nosniff" always;
+
+# Nonaktifkan filter XSS legacy yang rentan (digantikan oleh Content Security Policy)
+add_header X-XSS-Protection "0" always;
+
+# Batasi pengiriman informasi referrer
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+# Content Security Policy (CSP) ketat tanpa unsafe-inline untuk script
+add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'self';" always;
+
+# Permissions Policy untuk menonaktifkan fitur sensor berbahaya
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+
+# HTTP Strict Transport Security (HSTS) - 1 Tahun + Subdomains + Preload
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+# Cegah search engine mengindeks endpoint audit / portal internal
+add_header X-Robots-Tag "noindex, nofollow" always;

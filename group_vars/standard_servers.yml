@@ -1,0 +1,3 @@
+---
+# Variabel spesifik untuk kelompok standard baseline server (unhardened)
+webserver_hardened: false

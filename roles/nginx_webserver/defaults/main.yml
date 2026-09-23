@@ -1,0 +1,14 @@
+---
+# Menentukan apakah web server dikonfigurasi dalam mode hardened atau baseline standar
+webserver_hardened: "{{ (inventory_hostname in groups.get('hardening_servers', [])) | ternary(true, false) }}"
+
+# Port web server
+webserver_http_port: 80
+webserver_https_port: 443
+
+# Direktori web root
+webserver_web_root: /var/www/html
+
+# Direktori SSL
+webserver_ssl_cert_dir: /etc/ssl/certs
+webserver_ssl_key_dir: /etc/ssl/private

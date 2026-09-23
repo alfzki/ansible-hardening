@@ -9,13 +9,14 @@ Proyek ini dilengkapi dengan modul audit otomatis menggunakan **OpenSCAP** dan *
 ## Daftar Isi
 - [Fitur Utama](#fitur-utama)
 - [Struktur Repositori](#struktur-repositori)
-- [Cakupan Hardening](#cakupan-hardening)
+- [Cakupan Hardening OS](#cakupan-hardening-os)
+- [Simulasi Web Server: Hardened vs Baseline](#simulasi-web-server-hardened-vs-baseline)
 - [Prasyarat Sistem](#prasyarat-sistem)
 - [Panduan Penggunaan](#panduan-penggunaan)
   - [1. Konfigurasi Inventaris](#1-konfigurasi-inventaris)
-  - [2. Audit Kepatuhan Awal (Baseline)](#2-audit-kepatuhan-awal-baseline)
-  - [3. Menerapkan Hardening](#3-menerapkan-hardening)
-  - [4. Audit Kepatuhan Akhir & Verifikasi](#4-audit-kepatuhan-akhir--verifikasi)
+  - [2. Setup Web Server Nginx](#2-setup-web-server-nginx)
+  - [3. Menerapkan Hardening OS](#3-menerapkan-hardening-os)
+  - [4. Audit Kepatuhan & Verifikasi](#4-audit-kepatuhan--verifikasi)
 - [Pengelolaan Laporan Audit](#pengelolaan-laporan-audit)
 - [Keamanan & Praktik Terbaik](#keamanan--praktik-terbaik)
 
@@ -36,14 +37,33 @@ Proyek ini dilengkapi dengan modul audit otomatis menggunakan **OpenSCAP** dan *
 
 ```text
 ├── ansible.cfg                          # Konfigurasi Ansible project
-├── apply-hardening.yml                  # Playbook utama penerapan hardening
+├── apply-hardening.yml                  # Playbook utama penerapan hardening OS
+├── setup-webserver.yml                  # Playbook setup Nginx web server (hardened & standard)
 ├── audit-openscap.yml                    # Playbook audit kepatuhan via OpenSCAP
 ├── audit-ciscat.yml                      # Playbook audit kepatuhan via CIS-CAT Lite
+├── group_vars/
+│   ├── hardening_servers.yml            # Variabel profil server hardening (webserver_hardened: true)
+│   └── standard_servers.yml             # Variabel profil server baseline (webserver_hardened: false)
 ├── inventory/
 │   ├── hosts.ini.example                # Template inventaris target host
 │   └── hosts.ini                        # Inventaris aktif (diabaikan oleh git)
 ├── roles/
-│   └── ubuntu_hardening/                # Role utama hardening Ubuntu 24.04
+│   ├── nginx_webserver/                 # Role orkestrasi Nginx web server dual-mode
+│   │   ├── defaults/main.yml            # Default variabel role
+│   │   ├── tasks/
+│   │   │   ├── main.yml                 # Orkestrasi percabangan hardened vs standard
+│   │   │   ├── hardened.yml             # Task Nginx TLS 1.3, security headers & nftables
+│   │   │   └── standard.yml             # Task Nginx baseline standar bawaan
+│   │   ├── templates/
+│   │   │   ├── hardened_nginx.conf.j2   # Nginx master conf (server_tokens off, DoS buffers)
+│   │   │   ├── hardened_security_headers.conf.j2 # Security headers (HSTS, CSP, nosniff, dll)
+│   │   │   ├── hardened_site.conf.j2    # Vhost hardened (redirect 301, TLS, block dotfiles)
+│   │   │   ├── hardened_index.html.j2   # Dummy dashboard HTML server ter-hardening
+│   │   │   ├── standard_default.conf.j2 # Vhost standar baseline bawaan
+│   │   │   ├── standard_index.html.j2   # Dummy page HTML server baseline standar
+│   │   │   └── nftables.rules.j2        # Ruleset nftables port 22, 80, 443
+│   │   └── handlers/main.yml            # Handler reload/restart nginx & nftables
+│   └── ubuntu_hardening/                # Role utama hardening OS Ubuntu 24.04
 │       ├── tasks/
 │       │   ├── main.yml                 # Orkestrasi task hardening
 │       │   ├── filesystem.yml           # Hardening mount options & partisi
@@ -71,7 +91,7 @@ Proyek ini dilengkapi dengan modul audit otomatis menggunakan **OpenSCAP** dan *
 
 ---
 
-## Cakupan Hardening
+## Cakupan Hardening OS
 
 Role `ubuntu_hardening` mengimplementasikan parameter keamanan modular berikut:
 
@@ -131,6 +151,30 @@ Role `ubuntu_hardening` mengimplementasikan parameter keamanan modular berikut:
 
 ---
 
+## Simulasi Web Server: Hardened vs Baseline
+
+Agar pengujian keamanan merefleksikan arsitektur server produksi dunia nyata (*real-world web server*) dan bukan sekadar host minimalis dengan port SSH, kedua VM difungsikan sebagai web server aktif menggunakan **Nginx** dengan peran dan parameter keamanan yang berbeda:
+
+| Parameter Evaluasi | `standard-server` (Unhardened Baseline) | `ubuntu-server-2404` (Hardened Production) |
+| :--- | :--- | :--- |
+| **Profil Mesin** | Node pembanding baseline tanpa hardening | Node produksi ter-hardening CIS Level 2 |
+| **Server Tokens / Banner** | **Aktif (`server_tokens on;`)** — mengekspos versi Nginx & OS | **Dihilangkan (`server_tokens off;`)** — hanya menampilkan `nginx` |
+| **Protokol HTTP/HTTPS** | Plain HTTP aktif tanpa pengalihan otomatis; HTTPS standar | **HTTP dialihkan paksa (301 Redirect)** ke HTTPS terenkripsi |
+| **Validasi Host Header** | Semua host diterima (rentan Host Injection/Open Redirect) | **Tervalidasi ketat** (Host asing ditolak `HTTP 400 Bad Request`) |
+| **HSTS (Strict-Transport-Security)** | **Tidak Ada** | **Aktif (`max-age=31536000; includeSubDomains; preload`)** |
+| **X-Frame-Options** | **Tidak Terpasang** (Rentan Clickjacking) | **`SAMEORIGIN`** (Terproteksi dari Clickjacking) |
+| **X-Content-Type-Options** | **Tidak Terpasang** (MIME Sniffing diizinkan) | **`nosniff`** (Cegah sniffing tipe file) |
+| **Content Security Policy (CSP)** | **Tidak Dibatasi** | **Ketat** (`default-src 'self'`, `script-src 'self'`, no unsafe-inline script) |
+| **Permissions-Policy** | **Tidak Ada** | **Dibatasi** (`camera=(), microphone=(), geolocation=()`) |
+| **Enkripsi TLS & SAN** | Protokol bawaan, sertifikat self-signed tanpa SAN | **TLSv1.2 & TLSv1.3 only**, DHParam 2048-bit, **SAN IP & DNS support** |
+| **Mitigasi DoS & Rate Limiting** | Tanpa batasan rate/koneksi | **10 req/s, burst 20, 20 conns/IP (`HTTP 429`)**, timeout ketat |
+| **Restriksi Metode HTTP** | Standar Nginx (GET, HEAD) | **GET, HEAD, POST diizinkan** (metode lain ditolak HTTP 405) |
+| **Proteksi Dotfiles (`.env`, `.git`)** | Akses file standar (dapat diakses jika ada di disk) | **Diblokir** (Status HTTP 403 Forbidden) |
+| **Custom Error Handling** | Error page bawaan Nginx (ekspos versi Nginx) | **Kustom 404 & 50x** (tanpa banner versi/OS atau kebocoran stack trace) |
+| **Mitigasi Serangan BREACH** | Gzip compression aktif | **Gzip dinonaktifkan (`gzip off;`)** pada HTTPS |
+| **Firewall Host** | Standar / UFW Inactive (Permissive) | **Nftables Stateful Filter** (Default-deny, izin port 22, 80, 443) |
+| **Tampilan Halaman Dummy** | Halaman responsif: *Standard Baseline Server* | Halaman responsif: *Hardened Enterprise Dashboard* |
+
 ## Prasyarat Sistem
 
 - **Host Pengontrol (Ansible Controller)**:
@@ -168,30 +212,50 @@ ansible all -m ping
 
 ---
 
-### 2. Audit Kepatuhan Awal (Baseline)
+### 2. Setup Web Server Nginx
 
-Sebelum menerapkan hardening, jalankan audit awal untuk mengetahui skor kepatuhan saat ini:
+Jalankan playbook untuk memasang dan mengonfigurasi web server Nginx pada seluruh VM target:
+- `standard-server`: Dikonfigurasi dengan parameter standar baseline (unhardened).
+- `ubuntu-server-2404`: Dikonfigurasi dengan TLS 1.2/1.3, security headers, dan ruleset nftables terbuka untuk port 80 & 443.
 
 ```bash
-# Audit menggunakan OpenSCAP
-ansible-playbook audit-openscap.yml
+ansible-playbook setup-webserver.yml
 ```
 
-Laporan HTML awal akan disimpan di direktori `reports/` dan dapat dilihat di browser:
-```bash
-xdg-open reports/oscap-report-latest.html
-```
+#### Verifikasi Respon Web Server & Security Headers
 
-*(Opsional)* Jika menggunakan CIS-CAT Lite, tempatkan file arsip `CIS-CAT-Lite.zip` di dalam folder `files/`, kemudian jalankan:
+Gunakan `curl` dari controller atau workstation untuk menguji perbedaan keamanan antara kedua node:
+
 ```bash
-ansible-playbook audit-ciscat.yml
+# 1. Uji Baseline Standard Server (Unhardened)
+# Respon menampilkan versi Nginx (server_tokens on), plain HTTP diterima, tanpa HSTS
+curl -I http://10.10.10.233
+curl -k -I https://10.10.10.233
+
+# 2. Uji Hardened Production Server
+# HTTP port 80 dialihkan paksa (301) ke HTTPS, server_tokens off, seluruh security headers terpasang
+curl -I http://10.10.10.232
+curl -k -I https://10.10.10.232
+
+# 3. Uji restriksi metode HTTP terlarang (harus mengembalikan HTTP 405)
+curl -k -I -X DELETE https://10.10.10.232
+
+# 4. Uji proteksi file tersembunyi (harus mengembalikan HTTP 403 Forbidden)
+curl -k -I https://10.10.10.232/.env
+
+# 5. Uji pencegahan Host Header Injection / Open Redirect (harus ditolak HTTP 400 Bad Request)
+curl -H "Host: evil.com" -I http://10.10.10.232
+curl -k -H "Host: evil.com" -I https://10.10.10.232
+
+# 6. Uji halaman error 404 kustom ter-hardening (tanpa bocoran banner Nginx)
+curl -k -I https://10.10.10.232/nonexistent
 ```
 
 ---
 
-### 3. Menerapkan Hardening
+### 3. Menerapkan Hardening OS
 
-Jalankan playbook hardening untuk mengaplikasikan konfigurasi keamanan:
+Jalankan playbook hardening untuk mengaplikasikan konfigurasi keamanan CIS Benchmark Level 2 pada kelompok `hardening_servers`:
 
 ```bash
 ansible-playbook apply-hardening.yml
@@ -205,15 +269,23 @@ ansible-playbook apply-hardening.yml
 
 ---
 
-### 4. Audit Kepatuhan Akhir & Verifikasi
+### 4. Audit Kepatuhan & Verifikasi
 
-Jalankan kembali pemindaian audit untuk memverifikasi peningkatan skor:
+Jalankan audit kepatuhan OpenSCAP pada seluruh mesin (`ubuntu_vms`) untuk membandingkan skor antara node baseline standar dengan node yang telah di-hardening:
 
 ```bash
+# Audit menggunakan OpenSCAP
 ansible-playbook audit-openscap.yml
 ```
 
-Bandingkan skor hasil pemindaian awal dengan laporan terbaru di `reports/oscap-report-latest.html`.
+Laporan evaluasi HTML per host akan disimpan di folder `reports/`:
+- `reports/oscap-report-standard-server-latest.html` (Baseline unhardened)
+- `reports/oscap-report-ubuntu-server-2404-latest.html` (Hardened production)
+
+*(Opsional)* Jika menggunakan CIS-CAT Lite, tempatkan file arsip `CIS-CAT-Lite.zip` di dalam folder `files/`, kemudian jalankan:
+```bash
+ansible-playbook audit-ciscat.yml
+```
 
 ---
 
