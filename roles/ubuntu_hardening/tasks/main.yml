@@ -1,0 +1,21 @@
+---
+- name: Hardening Filesystem & Mount Options
+  ansible.builtin.import_tasks: filesystem.yml
+
+- name: Hardening Kernel Parameters & Sysctl
+  ansible.builtin.import_tasks: sysctl.yml
+
+- name: Hardening OpenSSH Server Configuration
+  ansible.builtin.import_tasks: ssh.yml
+
+- name: Hardening Password Policy & PAM Authentication
+  ansible.builtin.import_tasks: auth.yml
+
+- name: Hardening Host Firewall (Nftables) & Auditd Rules
+  ansible.builtin.import_tasks: firewall_audit.yml
+
+- name: Remediasi Lanjutan CIS (Sanitasi Sistem, Cron & Networking)
+  ansible.builtin.include_tasks: cis_remediation.yml
+
+- name: Remediasi Lanjutan Kedua CIS (AIDE, GRUB, Journald & AppArmor)
+  ansible.builtin.include_tasks: cis_remediation_v2.yml

@@ -1,0 +1,239 @@
+---
+- name: 1. Konfigurasi modul kernel tidak aman dengan format ganda (install /bin/false & blacklist)
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/cis.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      install cramfs /bin/false
+      blacklist cramfs
+      install freevxfs /bin/false
+      blacklist freevxfs
+      install jffs2 /bin/false
+      blacklist jffs2
+      install hfs /bin/false
+      blacklist hfs
+      install hfsplus /bin/false
+      blacklist hfsplus
+      install squashfs /bin/false
+      blacklist squashfs
+      install udf /bin/false
+      blacklist udf
+      install overlay /bin/false
+      blacklist overlay
+      install dccp /bin/false
+      blacklist dccp
+      install rds /bin/false
+      blacklist rds
+      install sctp /bin/false
+      blacklist sctp
+      install tipc /bin/false
+      blacklist tipc
+      install usb-storage /bin/false
+      blacklist usb-storage
+      install firewire-core /bin/false
+      blacklist firewire-core
+      install atm /bin/false
+      blacklist atm
+      install can /bin/false
+      blacklist can
+
+- name: 2. Izin dan restriksi Cron & At daemon
+  block:
+    - name: Buat file cron.allow (group crontab) dan at.allow
+      ansible.builtin.copy:
+        dest: /etc/cron.allow
+        owner: root
+        group: crontab
+        mode: '0640'
+        content: ""
+
+    - name: Pastikan at.allow ada dengan izin aman
+      ansible.builtin.copy:
+        dest: /etc/at.allow
+        owner: root
+        group: root
+        mode: '0640'
+        content: ""
+
+    - name: Hapus file cron.deny dan at.deny
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/cron.deny
+        - /etc/at.deny
+
+    - name: Atur izin berkas /etc/crontab ke 0600
+      ansible.builtin.file:
+        path: /etc/crontab
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Atur izin direktori cron.* ke 0700
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: root
+        group: root
+        mode: '0700'
+        state: directory
+      loop:
+        - /etc/cron.d
+        - /etc/cron.daily
+        - /etc/cron.hourly
+        - /etc/cron.monthly
+        - /etc/cron.weekly
+        - /etc/cron.yearly
+
+- name: 3. Bersihkan paket-paket legacy/usang dan mask layanan tidak diperlukan
+  block:
+    - name: Hentikan, nonaktifkan dan mask layanan rsync
+      ansible.builtin.systemd:
+        name: rsync
+        state: stopped
+        enabled: false
+        masked: true
+      failed_when: false
+
+    - name: Hapus paket legacy tidak aman dan rsync
+      ansible.builtin.apt:
+        name:
+          - ftp
+          - tnftp
+          - telnet
+          - inetutils-telnet
+          - rsync
+        state: absent
+        purge: true
+
+- name: 4. Nonaktifkan pelaporan error otomatis di /etc/default/apport dan mask layanan apport
+  block:
+    - name: Nonaktifkan apport di /etc/default/apport
+      ansible.builtin.lineinfile:
+        path: /etc/default/apport
+        regexp: '^enabled='
+        line: 'enabled=0'
+        create: true
+        mode: '0644'
+
+    - name: Nonaktifkan dan mask layanan apport
+      ansible.builtin.systemd:
+        name: apport
+        state: stopped
+        enabled: false
+        masked: true
+      failed_when: false
+
+- name: 5. Konfigurasi sinkronisasi waktu systemd-timesyncd
+  block:
+    - name: Pastikan direktori /etc/systemd/timesyncd.conf.d ada
+      ansible.builtin.file:
+        path: /etc/systemd/timesyncd.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Terapkan konfigurasi NTP drop-in untuk timesyncd
+      ansible.builtin.copy:
+        dest: /etc/systemd/timesyncd.conf.d/oscap-remedy.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Time]
+          NTP=0.ubuntu.pool.ntp.org 1.ubuntu.pool.ntp.org
+          FallbackNTP=2.ubuntu.pool.ntp.org 3.ubuntu.pool.ntp.org
+
+    - name: Aktifkan dan jalankan layanan systemd-timesyncd
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        state: started
+        enabled: true
+
+- name: 6. Batasi Postfix hanya mendengarkan antarmuka loopback jika terinstal
+  block:
+    - name: Atur inet_interfaces ke loopback-only di /etc/postfix/main.cf
+      ansible.builtin.lineinfile:
+        path: /etc/postfix/main.cf
+        regexp: '^inet_interfaces\s*='
+        line: 'inet_interfaces = loopback-only'
+      register: postfix_config
+
+    - name: Muat ulang konfigurasi postfix
+      ansible.builtin.service:
+        name: postfix
+        state: restarted
+      when: postfix_config.changed
+  ignore_errors: true
+
+- name: 7. Sudo Logging & Re-authentication Controls
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/01-cis-sudo
+    owner: root
+    group: root
+    mode: '0440'
+    content: |
+      Defaults logfile="/var/log/sudo.log"
+      Defaults timestamp_timeout=15
+
+- name: 8. Banner Login Konsol Lokal (/etc/issue & /etc/motd)
+  ansible.builtin.copy:
+    dest: "{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      *****************************************************************
+      * PERINGATAN: Akses hanya untuk personel terotorisasi.          *
+      * Seluruh aktivitas dimonitor dan dicatat dalam audit keamanan. *
+      *****************************************************************
+  loop:
+    - /etc/issue
+    - /etc/motd
+
+- name: Nonaktifkan dan bersihkan skrip update-motd dinamis agar tidak menampilkan informasi sistem
+  block:
+    - name: Temukan file skrip dalam direktori /etc/update-motd.d
+      ansible.builtin.find:
+        paths: /etc/update-motd.d
+        patterns: '*'
+        file_type: any
+      register: update_motd_files
+
+    - name: Hapus file skrip motd dinamis jika ada
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ update_motd_files.files }}"
+
+- name: 9. Standarisasi Nilai Umask Sistem (027) di /etc/profile, bash.bashrc dan /etc/profile.d/set-umask.sh
+  ansible.builtin.lineinfile:
+    path: "{{ item }}"
+    line: "umask 027"
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - /etc/profile
+    - /etc/bash.bashrc
+    - /etc/profile.d/set-umask.sh
+
+- name: 10. Restriksi Root PATH dan pastikan semua direktori dalam PATH ada
+  block:
+    - name: Set PATH standar di /etc/environment
+      ansible.builtin.lineinfile:
+        path: /etc/environment
+        regexp: "^PATH="
+        line: 'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"'
+
+    - name: Pastikan direktori /snap/bin ada jika masih dalam shell PATH
+      ansible.builtin.file:
+        path: /snap/bin
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'

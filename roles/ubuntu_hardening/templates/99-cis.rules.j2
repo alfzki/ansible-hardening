@@ -1,0 +1,98 @@
+## Sudoers & maintenance log events
+-w /var/log/sudo.log -p wa -k maintenance
+
+## Administrator actions
+-w /etc/sudoers -p wa -k actions
+-w /etc/sudoers.d/ -p wa -k actions
+
+## Time change events
+-a always,exit -F arch=b32 -S adjtimex,settimeofday,stime -k audit_time_rules
+-a always,exit -F arch=b64 -S adjtimex,settimeofday -k audit_time_rules
+-a always,exit -F arch=b32 -S clock_settime -F a0=0x0 -k time-change
+-a always,exit -F arch=b64 -S clock_settime -F a0=0x0 -k time-change
+-w /etc/localtime -p wa -k audit_time_rules
+
+## User & Group Identity
+-w /etc/group -p wa -k identity
+-w /etc/passwd -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/security/opasswd -p wa -k identity
+-w /etc/nsswitch.conf -p wa -k identity
+-w /etc/pam.conf -p wa -k identity
+-w /etc/pam.d/ -p wa -k identity
+
+## Network & Locale
+-a always,exit -F arch=b32 -S sethostname,setdomainname -k system-locale
+-a always,exit -F arch=b64 -S sethostname,setdomainname -k system-locale
+-w /etc/issue -p wa -k system-locale
+-w /etc/issue.net -p wa -k system-locale
+-w /etc/hosts -p wa -k system-locale
+-w /etc/networks -p wa -k system-locale
+-w /etc/network/ -p wa -k system-locale
+-w /etc/netplan/ -p wa -k system-locale
+
+## Mandatory Access Control (AppArmor)
+-w /etc/apparmor -p wa -k MAC-policy
+-w /etc/apparmor.d -p wa -k MAC-policy
+
+## Login & Session events
+-w /var/log/lastlog -p wa -k logins
+-w /var/run/faillock -p wa -k logins
+-w /var/run/utmp -p wa -k session
+-w /var/log/wtmp -p wa -k session
+-w /var/log/btmp -p wa -k session
+
+## DAC modifications (auid >= 1000)
+-a always,exit -F arch=b32 -S chmod,fchmod,fchmodat -F auid>=1000 -F auid!=unset -k perm_mod
+-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F auid>=1000 -F auid!=unset -k perm_mod
+-a always,exit -F arch=b32 -S chown,fchown,lchown,fchownat -F auid>=1000 -F auid!=unset -k perm_mod
+-a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F auid>=1000 -F auid!=unset -k perm_mod
+-a always,exit -F arch=b32 -S setxattr,fsetxattr,lsetxattr,removexattr,fremovexattr,lremovexattr -F auid>=1000 -F auid!=unset -k perm_mod
+-a always,exit -F arch=b64 -S setxattr,fsetxattr,lsetxattr,removexattr,fremovexattr,lremovexattr -F auid>=1000 -F auid!=unset -k perm_mod
+
+## DAC modifications (auid = 0)
+-a always,exit -F arch=b32 -S chmod,fchmod,fchmodat -F auid=0 -k perm_mod
+-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat -F auid=0 -k perm_mod
+-a always,exit -F arch=b32 -S chown,fchown,lchown,fchownat -F auid=0 -k perm_mod
+-a always,exit -F arch=b64 -S chown,fchown,lchown,fchownat -F auid=0 -k perm_mod
+-a always,exit -F arch=b32 -S setxattr,fsetxattr,lsetxattr,removexattr,fremovexattr,lremovexattr -F auid=0 -k perm_mod
+-a always,exit -F arch=b64 -S setxattr,fsetxattr,lsetxattr,removexattr,fremovexattr,lremovexattr -F auid=0 -k perm_mod
+
+## Execution / Privileged commands (CIS requirement)
+-a always,exit -F path=/usr/bin/chcon -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+-a always,exit -F path=/usr/bin/setfacl -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+-a always,exit -F path=/usr/bin/chacl -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+-a always,exit -F path=/usr/bin/kmod -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+-a always,exit -F path=/usr/sbin/usermod -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+-a always,exit -F path=/usr/sbin/apparmor_parser -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+{% if cis_privileged_binaries is defined and cis_privileged_binaries.stdout_lines is defined %}
+{% for bin in cis_privileged_binaries.stdout_lines %}
+-a always,exit -F path={{ bin }} -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+{% endfor %}
+{% endif %}
+
+## File Deletions
+-a always,exit -F arch=b32 -S unlink,unlinkat,rename,renameat -F auid>=1000 -F auid!=unset -k delete
+-a always,exit -F arch=b64 -S unlink,unlinkat,rename,renameat -F auid>=1000 -F auid!=unset -k delete
+
+## Unsuccessful file access attempts
+-a always,exit -F arch=b32 -S creat,open,openat,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access
+-a always,exit -F arch=b32 -S creat,open,openat,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access
+-a always,exit -F arch=b64 -S creat,open,openat,truncate,ftruncate -F exit=-EACCES -F auid>=1000 -F auid!=unset -k access
+-a always,exit -F arch=b64 -S creat,open,openat,truncate,ftruncate -F exit=-EPERM -F auid>=1000 -F auid!=unset -k access
+
+## Kernel module loading
+-a always,exit -F arch=b32 -S init_module,finit_module,delete_module,create_module,query_module -F auid>=1000 -F auid!=unset -k modules
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module,create_module,query_module -F auid>=1000 -F auid!=unset -k modules
+
+## Media export
+-a always,exit -F arch=b32 -S mount -F auid>=1000 -F auid!=unset -k export
+-a always,exit -F arch=b64 -S mount -F auid>=1000 -F auid!=unset -k export
+
+## User emulation / Privileged functions
+-a always,exit -F arch=b32 -S execve -C euid!=uid -F auid!=unset -k user_emulation
+-a always,exit -F arch=b64 -S execve -C euid!=uid -F auid!=unset -k user_emulation
+
+## Lock audit configuration
+-e 2

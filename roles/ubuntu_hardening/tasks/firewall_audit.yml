@@ -1,0 +1,107 @@
+---
+- name: Hentikan dan matikan layanan UFW jika aktif
+  ansible.builtin.systemd:
+    name: ufw
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Hapus paket UFW sepenuhnya dari sistem
+  ansible.builtin.apt:
+    name: ufw
+    state: absent
+    purge: true
+
+- name: Pastikan nftables dan auditd terinstal
+  ansible.builtin.apt:
+    name:
+      - nftables
+      - auditd
+      - audispd-plugins
+    state: present
+
+- name: Buat berkas aturan nftables (/etc/nftables.rules)
+  ansible.builtin.template:
+    src: nftables.rules.j2
+    dest: /etc/nftables.rules
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Konfigurasi /etc/nftables.conf master untuk menyertakan aturan
+  ansible.builtin.copy:
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: '0755'
+    content: |
+      #!/usr/sbin/nft -f
+
+      flush ruleset
+
+      include "/etc/nftables.rules"
+
+- name: Terapkan aturan nftables
+  ansible.builtin.command:
+    cmd: nft -f /etc/nftables.conf
+  changed_when: false
+
+- name: Pastikan layanan nftables aktif dan enabled
+  ansible.builtin.systemd:
+    name: nftables
+    state: started
+    enabled: true
+
+- name: Konfigurasi parameter auditd di /etc/audit/auditd.conf
+  ansible.builtin.lineinfile:
+    path: /etc/audit/auditd.conf
+    regexp: "^{{ item.key }}\\s*="
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - { key: 'space_left_action', value: 'email' }
+    - { key: 'action_mail_acct', value: 'root' }
+    - { key: 'admin_space_left_action', value: 'halt' }
+    - { key: 'disk_full_action', value: 'halt' }
+    - { key: 'disk_error_action', value: 'halt' }
+    - { key: 'max_log_file_action', value: 'keep_logs' }
+
+- name: Pastikan berkas /var/log/sudo.log ada untuk audit watch
+  ansible.builtin.file:
+    path: /var/log/sudo.log
+    state: touch
+    owner: root
+    group: root
+    mode: '0600'
+    modification_time: preserve
+    access_time: preserve
+
+- name: Hapus rule audit lama cis-audit.rules jika ada
+  ansible.builtin.file:
+    path: /etc/audit/rules.d/cis-audit.rules
+    state: absent
+
+- name: Temukan seluruh berkas executable SUID/SGID pada sistem untuk audit rules
+  ansible.builtin.shell:
+    cmd: >
+      find / -xdev -type f -perm /6000 2>/dev/null | sort -u
+  register: cis_privileged_binaries
+  changed_when: false
+
+- name: Buat aturan auditd komprehensif dual-arch (/etc/audit/rules.d/99-cis.rules)
+  ansible.builtin.template:
+    src: 99-cis.rules.j2
+    dest: /etc/audit/rules.d/99-cis.rules
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Pastikan izin seluruh file audit rules berizin 0600
+  ansible.builtin.shell:
+    cmd: chmod 0600 /etc/audit/rules.d/*.rules
+  changed_when: false
+
+- name: Muat aturan auditd via augenrules
+  ansible.builtin.command:
+    cmd: augenrules --load
+  failed_when: false
+  changed_when: false

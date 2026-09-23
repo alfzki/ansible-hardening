@@ -1,0 +1,105 @@
+---
+- name: Audit Kepatuhan Otomatis Menggunakan CIS-CAT Lite
+  hosts: ubuntu_vms
+  become: true
+  vars:
+    ciscat_archive: "files/CIS-CAT-Lite.zip"
+    remote_ciscat_base_dir: "/opt/cis-cat-lite"
+    remote_ciscat_dir: "/opt/cis-cat-lite/Assessor"
+    ciscat_report_dir: "/var/log/cis-cat-reports"
+    ciscat_benchmark_file: "benchmarks/CIS_Ubuntu_Linux_24.04_LTS_Benchmark_v2.0.0-xccdf.xml"
+
+  tasks:
+    - name: Instal dependensi Java JRE 21 dan unzip
+      ansible.builtin.apt:
+        name:
+          - openjdk-21-jre-headless
+          - unzip
+        state: present
+        update_cache: true
+
+    - name: Buat direktori kerja CIS-CAT dan direktori laporan
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ remote_ciscat_base_dir }}"
+        - "{{ ciscat_report_dir }}"
+
+    - name: Ekstrak arsip CIS-CAT Lite ke VM target dengan struktur folder lengkap
+      ansible.builtin.unarchive:
+        src: "{{ ciscat_archive }}"
+        dest: "{{ remote_ciscat_base_dir }}"
+        creates: "{{ remote_ciscat_dir }}/Assessor-CLI.sh"
+
+    - name: Berikan izin eksekusi pada script CLI dan SCE CIS-CAT
+      ansible.builtin.file:
+        path: "{{ remote_ciscat_dir }}/Assessor-CLI.sh"
+        mode: '0755'
+
+    - name: Pastikan skrip pengujian SCE dapat dieksekusi
+      ansible.builtin.shell:
+        cmd: chmod -R +x {{ remote_ciscat_dir }}/sce/
+      changed_when: false
+
+    - name: Perbaiki bug CIS-CAT SCE script nix_shell_init_umask_floor_chk.sh (default XCCDF_VALUE_REGEX ke 0027 jika kosong)
+      ansible.builtin.shell:
+        cmd: >
+          grep -q 'XCCDF_VALUE_REGEX="${XCCDF_VALUE_REGEX:-0027}"' {{ remote_ciscat_dir }}/sce/nix_shell_init_umask_floor_chk.sh ||
+          sed -i 's/^if \[ -z "\${XCCDF_VALUE_REGEX:-}" \]; then/XCCDF_VALUE_REGEX="\${XCCDF_VALUE_REGEX:-0027}"\n&/' {{ remote_ciscat_dir }}/sce/nix_shell_init_umask_floor_chk.sh
+      changed_when: false
+
+    - name: Perbaiki bug logika terbalik pada script CIS-CAT nix_motd_permission_chk_v2.sh
+      ansible.builtin.replace:
+        path: "{{ remote_ciscat_dir }}/sce/nix_motd_permission_chk_v2.sh"
+        regexp: '== 0\)\);\s*then\s*\n\s*echo -e "\\n- Audit Result:\\n\s+\*\* FAIL \*\*'
+        replace: '!= 0)); then\n    echo -e "\n- Audit Result:\n  ** FAIL **'
+
+    - name: Jalankan Asesmen Kepatuhan CIS-CAT Lite
+      ansible.builtin.command:
+        cmd: >
+          ./Assessor-CLI.sh
+          -b {{ ciscat_benchmark_file }}
+          -p "Level 1 - Server"
+          -rd {{ ciscat_report_dir }}
+          -html
+        chdir: "{{ remote_ciscat_dir }}"
+      register: ciscat_exec
+      failed_when: false
+
+    - name: Hitung dan tampilkan skor kepatuhan CIS-CAT
+      ansible.builtin.command:
+        cmd: >-
+          python3 -c "import sys, re; output = sys.stdin.read(); scored = re.search(r'Total Scored Results:\s*(\d+)', output); score = re.search(r'Score Earned:\s*([\d\.]+)', output); total = float(scored.group(1)) if scored else 0; earned = float(score.group(1)) if score else 0; pct = (earned / total * 100.0) if total > 0 else 0; print('='*50); print(f'SKOR KEPATUHAN CIS-CAT LITE : {pct:.2f}%'); print(f'Total Scored Rules          : {int(total)}'); print(f'Score Earned                : {earned}'); print('='*50)"
+        stdin: "{{ ciscat_exec.stdout }}"
+      register: ciscat_score_output
+      changed_when: false
+
+    - name: Tampilkan ringkasan skor CIS-CAT
+      ansible.builtin.debug:
+        msg: "{{ ciscat_score_output.stdout_lines }}"
+
+    - name: Cari berkas laporan HTML hasil evaluasi CIS-CAT
+      ansible.builtin.find:
+        paths:
+          - "{{ ciscat_report_dir }}"
+          - "{{ remote_ciscat_dir }}/reports"
+        patterns: "*.html"
+      register: ciscat_reports
+
+    - name: Unduh (fetch) laporan HTML CIS-CAT terbaru ke Host
+      ansible.builtin.fetch:
+        src: "{{ (ciscat_reports.files | sort(attribute='mtime', reverse=true) | first).path }}"
+        dest: "{{ playbook_dir }}/reports/ciscat-report-{{ ansible_facts['date_time']['epoch'] }}.html"
+        flat: true
+      when: ciscat_reports.matched > 0
+
+    - name: Perbarui symlink laporan CIS-CAT terbaru
+      ansible.builtin.file:
+        src: "ciscat-report-{{ ansible_facts['date_time']['epoch'] }}.html"
+        dest: "{{ playbook_dir }}/reports/ciscat-report-latest.html"
+        state: link
+      delegate_to: localhost
+      become: false
+      when: ciscat_reports.matched > 0

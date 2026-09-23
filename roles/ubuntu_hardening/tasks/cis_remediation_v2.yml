@@ -1,0 +1,105 @@
+---
+- name: 1. Konfigurasi AIDE Database & Audit Tools Integrity
+  block:
+    - name: Pastikan dependensi AIDE terinstal
+      ansible.builtin.apt:
+        name:
+          - aide
+          - aide-common
+        state: present
+
+    - name: Konfigurasi path database AIDE di /etc/aide/aide.conf
+      ansible.builtin.lineinfile:
+        path: /etc/aide/aide.conf
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "database=file:/var/lib/aide/aide.db"
+        - "database_out=file:/var/lib/aide/aide.db.new"
+
+    - name: Daftarkan binary audit tools ke /etc/aide/aide.conf
+      ansible.builtin.lineinfile:
+        path: /etc/aide/aide.conf
+        regexp: "^.*(/usr)?/sbin/{{ item }}.*$"
+        line: "/usr/sbin/{{ item }} p+i+n+u+g+s+b+acl+xattrs+sha512"
+        state: present
+      loop:
+        - auditctl
+        - auditd
+        - ausearch
+        - aureport
+        - autrace
+        - augenrules
+
+    - name: Pastikan file aktif database AIDE ada
+      ansible.builtin.stat:
+        path: /var/lib/aide/aide.db
+      register: aide_db_stat
+
+    - name: Inisialisasi database AIDE jika belum ada
+      ansible.builtin.command:
+        cmd: aideinit -y -f
+      when: not aide_db_stat.stat.exists
+
+- name: 2. Konfigurasi GRUB Kernel Boot Arguments (Audit & AppArmor)
+  block:
+    - name: Atur parameter keamanan pada /etc/default/grub
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: "^{{ item.key }}="
+        line: '{{ item.key }}="audit=1 audit_backlog_limit=8192 apparmor=1 security=apparmor"'
+      loop:
+        - { key: 'GRUB_CMDLINE_LINUX' }
+        - { key: 'GRUB_CMDLINE_LINUX_DEFAULT' }
+      register: grub_config_update
+
+    - name: Perbarui konfigurasi GRUB
+      ansible.builtin.command:
+        cmd: update-grub
+      when: grub_config_update.changed
+
+- name: 3. Konfigurasi journald ForwardToSyslog & Storage
+  community.general.ini_file:
+    path: /etc/systemd/journald.conf
+    section: Journal
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    mode: '0644'
+  loop:
+    - { option: 'ForwardToSyslog', value: 'yes' }
+    - { option: 'Storage', value: 'persistent' }
+
+- name: 4. Pastikan izin file log pada /var/log aman
+  ansible.builtin.shell:
+    cmd: find -P /var/log/ -perm /u+xs,g+xws,o+xwrt ! -name 'history.log*' ! -name 'eipp.log.xz*' ! -name '[bw]tmp' ! -name '[bw]tmp.*' ! -name '[bw]tmp-*' ! -name 'lastlog' ! -name 'lastlog.*' ! -name 'cloud-init.log*' ! -name 'localmessages*' ! -name 'waagent.log*' -type f -exec chmod u-xs,g-xws,o-xwrt {} \;
+  changed_when: false
+
+- name: 5. Pastikan izin berkas inisialisasi pengguna interaktif tidak berlebihan
+  ansible.builtin.shell:
+    cmd: find /home/sysadmin -maxdepth 1 -name ".*" -type f -exec chmod u-s,g-wxs,o= {} +
+  changed_when: false
+
+- name: 6. Konfigurasi AppArmor Enforce Profiles
+  block:
+    - name: Pastikan dependensi AppArmor terinstal
+      ansible.builtin.apt:
+        name:
+          - apparmor
+          - apparmor-utils
+        state: present
+
+    - name: Terapkan penegakan profil AppArmor
+      ansible.builtin.shell:
+        cmd: aa-enforce /etc/apparmor.d/*
+      failed_when: false
+      changed_when: false
+
+- name: 7. Penonaktifan layanan broadcast/RPC tidak aman
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - avahi-daemon
+    - cups
+  failed_when: false

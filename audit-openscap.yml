@@ -1,0 +1,117 @@
+- name: Audit Kepatuhan Keamanan Menggunakan OpenSCAP
+  hosts: ubuntu_vms
+  become: true
+
+  vars:
+    ssg_version: "0.1.82"
+    ssg_zip_url: "https://github.com/ComplianceAsCode/content/releases/download/v{{ ssg_version }}/scap-security-guide-{{ ssg_version }}.zip"
+    ssg_content_dir: "/usr/share/xml/scap/ssg/content"
+
+  tasks:
+    - name: Pastikan dependensi OpenSCAP dan unzip terinstal
+      ansible.builtin.apt:
+        name:
+          - openscap-scanner
+          - libopenscap25
+          - ssg-base
+          - ssg-debderived
+          - unzip
+          - curl
+        state: present
+        update_cache: true
+
+    - name: Buat direktori kerja report dan content
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /var/log/scap-reports
+        - "{{ ssg_content_dir }}"
+
+    - name: Cek ketersediaan ssg-ubuntu2404-ds.xml
+      ansible.builtin.stat:
+        path: "{{ ssg_content_dir }}/ssg-ubuntu2404-ds.xml"
+      register: ubuntu2404_ds
+
+    - name: Unduh arsip zip SSG ke direktori /tmp VM target
+      ansible.builtin.get_url:
+        url: "{{ ssg_zip_url }}"
+        dest: "/tmp/scap-security-guide-{{ ssg_version }}.zip"
+        mode: '0644'
+      when: not ubuntu2404_ds.stat.exists
+
+    - name: Ekstrak ssg-ubuntu2404-ds.xml ke direktori content
+      ansible.builtin.command:
+        cmd: unzip -o -j /tmp/scap-security-guide-{{ ssg_version }}.zip "*ssg-ubuntu2404-ds.xml" -d {{ ssg_content_dir }}
+      when: not ubuntu2404_ds.stat.exists
+
+    - name: Bersihkan file zip sementara
+      ansible.builtin.file:
+        path: "/tmp/scap-security-guide-{{ ssg_version }}.zip"
+        state: absent
+
+    - name: Periksa info profil yang tersedia di datastream 24.04
+      ansible.builtin.command:
+        cmd: "oscap info {{ ssg_content_dir }}/ssg-ubuntu2404-ds.xml"
+      register: oscap_profile_info
+      changed_when: false
+
+    - name: Tampilkan ID profil CIS yang tersedia
+      ansible.builtin.debug:
+        msg: "{{ oscap_profile_info.stdout_lines | select('search', 'cis') | list }}"
+
+    - name: Jalankan evaluasi CIS Benchmark via OpenSCAP
+      ansible.builtin.command:
+        cmd: >
+          oscap xccdf eval
+          --profile xccdf_org.ssgproject.content_profile_cis_level2_server
+          --results /var/log/scap-reports/oscap-results.xml
+          --report /var/log/scap-reports/oscap-report.html
+          {{ ssg_content_dir }}/ssg-ubuntu2404-ds.xml
+      register: oscap_exec
+      failed_when: false
+      changed_when: false
+
+    - name: Hitung dan tampilkan skor kepatuhan OpenSCAP
+      ansible.builtin.shell: |
+        python3 -c '
+        import xml.etree.ElementTree as ET
+        tree = ET.parse("/var/log/scap-reports/oscap-results.xml")
+        root = tree.getroot()
+        ns = {"x": "http://checklists.nist.gov/xccdf/1.2"}
+        rules = root.findall(".//x:rule-result", ns)
+        results = [r.find("x:result", ns).text for r in rules]
+        score_elem = root.find(".//x:score", ns)
+        score = score_elem.text if score_elem is not None else "0.0"
+        p_cnt = results.count("pass")
+        f_cnt = results.count("fail")
+        na_cnt = results.count("notapplicable")
+        print("==================================================")
+        print(f"SKOR KEPATUHAN OPENSCAP : {float(score):.2f}% ({score})")
+        print(f"Total Rules             : {len(rules)}")
+        print(f"Pass                    : {p_cnt}")
+        print(f"Fail                    : {f_cnt}")
+        print(f"Not Applicable          : {na_cnt}")
+        print("==================================================")
+        '
+      register: oscap_score_output
+      changed_when: false
+
+    - name: Tampilkan ringkasan skor OpenSCAP
+      ansible.builtin.debug:
+        msg: "{{ oscap_score_output.stdout_lines }}"
+
+    - name: Tarik (fetch) laporan HTML OpenSCAP ke Host
+      ansible.builtin.fetch:
+        src: /var/log/scap-reports/oscap-report.html
+        dest: "{{ playbook_dir }}/reports/oscap-report-{{ ansible_facts['date_time']['epoch'] }}.html"
+        flat: true
+
+    - name: Perbarui symlink laporan OpenSCAP terbaru
+      ansible.builtin.file:
+        src: "oscap-report-{{ ansible_facts['date_time']['epoch'] }}.html"
+        dest: "{{ playbook_dir }}/reports/oscap-report-latest.html"
+        state: link
+      delegate_to: localhost
+      become: false

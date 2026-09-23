@@ -1,0 +1,18 @@
+---
+- name: Hapus konfigurasi lama disable filesystems jika ada
+  ansible.builtin.file:
+    path: /etc/modprobe.d/cis-disable-filesystems.conf
+    state: absent
+
+- name: Konfigurasi opsi keamanan pada partisi /dev/shm
+  ansible.posix.mount:
+    path: /dev/shm
+    src: tmpfs
+    fstype: tmpfs
+    opts: "defaults,nodev,nosuid,noexec"
+    state: mounted
+
+- name: Pastikan izin sticky bit aktif pada direktori world-writable
+  ansible.builtin.shell:
+    cmd: df --local -P | awk '{if (NR!=1) print $6}' | xargs -I '{}' find '{}' -xdev -type d \( -perm -0002 -a ! -perm -1000 \) 2>/dev/null | xargs -r chmod a+t
+  changed_when: false

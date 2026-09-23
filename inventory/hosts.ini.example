@@ -1,0 +1,6 @@
+[ubuntu_vms]
+# Ganti dengan nama host/IP dan kredensial target VM Anda
+ubuntu-server-2404 ansible_host=192.168.1.100 ansible_user=sysadmin ansible_become_password=YourPasswordHere
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3

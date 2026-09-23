@@ -1,0 +1,152 @@
+---
+- name: Instal modul pwquality dan libpam-modules
+  ansible.builtin.apt:
+    name:
+      - libpam-pwquality
+    state: present
+
+- name: Konfigurasi kompleksitas password di /etc/security/pwquality.conf
+  ansible.builtin.lineinfile:
+    path: /etc/security/pwquality.conf
+    regexp: "^{{ item.key }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { key: 'minlen', line: 'minlen = 14' }
+    - { key: 'minclass', line: 'minclass = 4' }
+    - { key: 'dcredit', line: 'dcredit = -1' }
+    - { key: 'ucredit', line: 'ucredit = -1' }
+    - { key: 'lcredit', line: 'lcredit = -1' }
+    - { key: 'ocredit', line: 'ocredit = -1' }
+    - { key: 'maxrepeat', line: 'maxrepeat = 3' }
+    - { key: 'maxsequence', line: 'maxsequence = 3' }
+    - { key: 'difok', line: 'difok = 3' }
+    - { key: 'dictcheck', line: 'dictcheck = 1' }
+    - { key: 'enforcing', line: 'enforcing = 1' }
+    - { key: 'enforce_for_root', line: 'enforce_for_root' }
+
+- name: Atur kedaluwarsa password dan umask di /etc/login.defs
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: "^{{ item.param }}"
+    line: "{{ item.param }}\t{{ item.val }}"
+  loop:
+    - { param: 'PASS_MAX_DAYS', val: '365' }
+    - { param: 'PASS_MIN_DAYS', val: '1' }
+    - { param: 'PASS_WARN_AGE', val: '7' }
+    - { param: 'UMASK', val: '027' }
+
+- name: Konfigurasi lockout akun (faillock.conf)
+  ansible.builtin.lineinfile:
+    path: /etc/security/faillock.conf
+    regexp: "^{{ item.key }}"
+    line: "{{ item.line }}"
+    create: true
+    mode: '0644'
+  loop:
+    - { key: 'deny', line: 'deny = 4' }
+    - { key: 'unlock_time', line: 'unlock_time = 900' }
+    - { key: 'root_unlock_time', line: 'root_unlock_time = 60' }
+    - { key: 'even_deny_root', line: 'even_deny_root' }
+
+- name: Buat profil pam-configs untuk faillock dan pwhistory
+  ansible.builtin.copy:
+    dest: "{{ item.dest }}"
+    mode: '0644'
+    content: "{{ item.content }}"
+  loop:
+    - dest: /usr/share/pam-configs/cac_faillock
+      content: |
+        Name: Enable pam_faillock to deny access
+        Default: yes
+        Conflicts: faillock
+        Priority: 0
+        Auth-Type: Primary
+        Auth:
+            [default=die]                   pam_faillock.so authfail
+    - dest: /usr/share/pam-configs/cac_faillock_notify
+      content: |
+        Name: Notify of failed login attempts and reset count upon success
+        Default: yes
+        Conflicts: faillock_notify
+        Priority: 1025
+        Auth-Type: Primary
+        Auth:
+            requisite                       pam_faillock.so preauth
+        Account-Type: Primary
+        Account:
+            required                        pam_faillock.so
+    - dest: /usr/share/pam-configs/cac_pwhistory
+      content: |
+        Name: pwhistory password history checking
+        Default: yes
+        Priority: 1024
+        Password-Type: Primary
+        Password: requisite pam_pwhistory.so remember=24 enforce_for_root try_first_pass use_authtok
+        Password-Initial: requisite pam_pwhistory.so remember=24 enforce_for_root try_first_pass
+
+- name: Aktifkan konfigurasi PAM via pam-auth-update
+  ansible.builtin.command:
+    cmd: pam-auth-update --package --enable cac_faillock cac_faillock_notify cac_pwhistory
+  changed_when: false
+
+- name: Pastikan nullok tidak diizinkan di /etc/pam.d/common-auth
+  ansible.builtin.replace:
+    path: /etc/pam.d/common-auth
+    regexp: '\bnullok\b'
+    replace: ''
+
+- name: Nonaktifkan pam_motd di /etc/pam.d/login dan /etc/pam.d/sshd
+  ansible.builtin.replace:
+    path: "{{ item }}"
+    regexp: '^(\s*session\s+optional\s+pam_motd\.so.*)$'
+    replace: '# \1'
+  loop:
+    - /etc/pam.d/login
+    - /etc/pam.d/sshd
+
+- name: Konfigurasi default useradd inactive 45 hari
+  ansible.builtin.lineinfile:
+    path: /etc/default/useradd
+    regexp: '^INACTIVE='
+    line: 'INACTIVE=45'
+
+- name: Konfigurasi inactive 45 hari untuk akun pengguna yang ada di shadow
+  ansible.builtin.shell:
+    cmd: >
+      for u in $(awk -F: '($2~/^\$.+/) {print $1}' /etc/shadow); do
+        chage --inactive 45 "$u"
+      done
+  changed_when: false
+
+- name: Konfigurasi TMOUT otomatis logout shell
+  ansible.builtin.copy:
+    dest: /etc/profile.d/tmout.sh
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      TMOUT=900
+      readonly TMOUT
+      export TMOUT
+
+- name: Pastikan grup sugroup ada dan kosong untuk su restriction
+  ansible.builtin.group:
+    name: sugroup
+    state: present
+
+- name: Batasi penggunaan su hanya untuk grup sugroup yang kosong
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/su
+    regexp: '^auth\s+required\s+pam_wheel\.so'
+    line: 'auth required pam_wheel.so use_uid group=sugroup'
+    state: present
+
+- name: Nonaktifkan core dumps pengguna di /etc/security/limits.d/10-ssg-hardening.conf
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/10-ssg-hardening.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      *     hard   core    0

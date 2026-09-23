@@ -1,0 +1,6 @@
+---
+- name: Penerapan Hardening Keamanan Ubuntu Server 24.04 (CIS Benchmark)
+  hosts: ubuntu_vms
+  become: true
+  roles:
+    - ubuntu_hardening

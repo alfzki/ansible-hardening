@@ -1,0 +1,26 @@
+# Ansible temporary & retry files
+*.retry
+*.log
+.ansible/
+.vault_pass
+.vault_password
+
+# Inventory credentials & local environment overrides
+inventory/hosts.ini
+
+# Large binaries & vendor archives (e.g. CIS-CAT distribution >100MB)
+files/*.zip
+files/*.tar.gz
+files/CIS-CAT-Lite.zip
+
+# Generated audit and compliance reports
+reports/*.html
+reports/*.xml
+
+# System & IDE files
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
